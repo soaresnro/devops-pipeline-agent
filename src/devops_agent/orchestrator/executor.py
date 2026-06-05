@@ -156,6 +156,7 @@ def prepare_dry_run(
         language=language,
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         dotnet_version=session.dotnet_version or DEFAULT_DOTNET_VERSION,
+        environments=settings.environments,
         pipeline_pass_language=settings.pipeline_pass_language,
         pipeline_template_path=_pipeline_template_path(settings, session.app_type, language),
         namespace=session.namespace,

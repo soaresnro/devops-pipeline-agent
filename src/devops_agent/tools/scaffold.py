@@ -118,6 +118,9 @@ DEFAULT_PIPELINE_TEMPLATE_PATH = "pipelines/k8s-app.yaml"
 # Versao default do .NET quando o usuario nao informa.
 DEFAULT_DOTNET_VERSION = "8.0.x"
 
+# Ambientes default para os quais gerar override de values.
+DEFAULT_ENVIRONMENTS = ("dev", "qa", "uat", "prod")
+
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
 
@@ -219,15 +222,20 @@ def render_pipeline_yaml(context: dict[str, object], *, stack: str = "_default")
 def render_helm_chart(
     app_type: AppType,
     context: dict[str, object],
+    environments: list[str],
 ) -> list[ScaffoldedFile]:
-    """Renderiza o Helm chart completo combinando _common + tipo-especifico."""
+    """Renderiza o Helm chart (helm/apps/<app>) + override por ambiente.
+
+    Layout esperado pelo template do time: chart em helm/apps/<app> e values por
+    ambiente em environments/<env>/<app>/values.yaml (override fino sobre o base).
+    """
     files: list[ScaffoldedFile] = []
     app_name = context["app_name"]
 
     chart_yaml = _render_template("helm/_common/Chart.yaml.j2", context)
     values_yaml = _render_template("helm/_common/values.yaml.j2", context)
 
-    chart_root = f"charts/{app_name}"
+    chart_root = f"helm/apps/{app_name}"
     files.append(ScaffoldedFile(path=f"{chart_root}/Chart.yaml", content=chart_yaml))
     files.append(ScaffoldedFile(path=f"{chart_root}/values.yaml", content=values_yaml))
 
@@ -235,9 +243,18 @@ def render_helm_chart(
     for rel, content in _walk_static_helm_files("helm/_common/templates"):
         files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
 
-    # Templates Helm especificos do tipo (api/worker/web)
+    # Templates Helm especificos do tipo (api/worker/web/cronjob)
     for rel, content in _walk_static_helm_files(f"helm/{app_type.value}/templates"):
         files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
+
+    # Override fino por ambiente (StrictUndefined exige 'env' no contexto).
+    for env in environments:
+        env_values = _render_template("environments/values.yaml.j2", {**context, "env": env})
+        files.append(
+            ScaffoldedFile(
+                path=f"environments/{env}/{app_name}/values.yaml", content=env_values
+            )
+        )
 
     # Ordena para determinismo (testes de snapshot)
     files.sort(key=lambda f: f.path)
@@ -258,8 +275,10 @@ def build_bundle(
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
+    environments: list[str] | None = None,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
+    envs = environments if environments is not None else list(DEFAULT_ENVIRONMENTS)
     ctx = _build_template_context(
         app_name=app_name,
         app_type=app_type,
@@ -282,7 +301,7 @@ def build_bundle(
             content=render_pipeline_yaml(ctx, stack=_pipeline_stack(app_type, language)),
         ),
     ]
-    helm_files = render_helm_chart(app_type, ctx)
+    helm_files = render_helm_chart(app_type, ctx, envs)
 
     return ScaffoldBundle(app_repo_files=app_files, helm_chart_files=helm_files)
 
@@ -301,6 +320,7 @@ def dry_run(
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
+    environments: list[str] | None = None,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -319,6 +339,7 @@ def dry_run(
             pipeline_pass_language=pipeline_pass_language,
             pipeline_template_path=pipeline_template_path,
             dotnet_version=dotnet_version,
+            environments=environments,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(

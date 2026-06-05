@@ -1,0 +1,25 @@
+# Override de {{ app_name }} para o ambiente {{ env }} ({{ app_type }}).
+# Herda de helm/apps/{{ app_name }}/values.yaml; defina aqui apenas o que muda por ambiente.
+
+image:
+  tag: ""  # injetado pela pipeline (Build.BuildId); fixe aqui para pinar neste ambiente
+{%- if app_type != 'cronjob' %}
+
+replicaCount: {{ replica_count }}
+{%- endif %}
+{%- if app_type in ('api', 'web') %}
+
+ingress:
+  hosts:
+    - host: {{ app_name }}-{{ env }}.example.com  # ATUALIZE com o host real de {{ env }}
+{%- if app_type == 'web' %}
+  tls:
+    - secretName: {{ app_name }}-{{ env }}-tls
+      hosts:
+        - {{ app_name }}-{{ env }}.example.com
+{%- endif %}
+
+autoscaling:
+  minReplicas: {{ replica_count }}
+  maxReplicas: 10
+{%- endif %}
