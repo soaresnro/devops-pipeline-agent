@@ -109,6 +109,9 @@ _TYPE_DEFAULTS: dict[AppType, TypeDefaults] = {
 }
 
 
+# Agendamento cron padrao para cronjob quando o usuario nao informa um (de hora em hora).
+DEFAULT_CRON_SCHEDULE = "0 * * * *"
+
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
 
@@ -153,12 +156,14 @@ def _build_template_context(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    schedule: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
         "app_name": app_name,
         "app_type": app_type.value,
         "language": language.value,
+        "schedule": schedule,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -229,6 +234,7 @@ def build_bundle(
     devops_templates_repo_name: str,
     devops_templates_tag: str,
     language: Language = Language.DOTNET,
+    schedule: str = DEFAULT_CRON_SCHEDULE,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     ctx = _build_template_context(
@@ -240,6 +246,7 @@ def build_bundle(
         acr_name=acr_name,
         devops_templates_repo_name=devops_templates_repo_name,
         devops_templates_tag=devops_templates_tag,
+        schedule=schedule,
     )
 
     app_files = [
@@ -264,6 +271,7 @@ def dry_run(
     devops_templates_repo_name: str,
     devops_templates_tag: str,
     language: Language = Language.DOTNET,
+    schedule: str = DEFAULT_CRON_SCHEDULE,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -278,6 +286,7 @@ def dry_run(
             acr_name=acr_name,
             devops_templates_repo_name=devops_templates_repo_name,
             devops_templates_tag=devops_templates_tag,
+            schedule=schedule,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(

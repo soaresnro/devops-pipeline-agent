@@ -106,6 +106,26 @@ def tools_for_agent() -> list[dict[str, Any]]:
             },
         ),
         _tool(
+            name="set_schedule",
+            description=(
+                "Define o agendamento (cron) do CronJob a partir da resposta do usuario. "
+                "Chame apenas quando o tipo for 'cronjob', logo apos validar o tipo e antes "
+                "de detect_language. Aceita 5 campos (ex.: '0 2 * * *') ou macros (@daily, "
+                "@hourly). Se o usuario nao informar, pode omitir e o padrao '0 * * * *' sera usado."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "schedule": {
+                        "type": "string",
+                        "description": "Expressao cron de 5 campos ou macro (ex.: '0 2 * * *', @daily).",
+                    }
+                },
+                "required": ["schedule"],
+                "additionalProperties": False,
+            },
+        ),
+        _tool(
             name="detect_language",
             description=(
                 "Detecta a linguagem da aplicacao inspecionando os arquivos do repositorio "

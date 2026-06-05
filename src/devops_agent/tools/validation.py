@@ -66,6 +66,12 @@ _AZDO_URL_RE = re.compile(
 # Branch git: regras simplificadas (suficientes para 99% dos casos).
 _BRANCH_RE = re.compile(r"^(?!/|.*//|.*\.\.|.*@\{)[A-Za-z0-9._/\-]+(?<![./])$")
 
+# Cron: validacao pragmatica (5 campos com o charset de cron) + macros do K8s.
+_CRON_MACROS: frozenset[str] = frozenset(
+    {"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
+)
+_CRON_FIELD_RE = re.compile(r"^[\d*/,\-]+$")
+
 
 def validate_repo_url(
     url: str,
@@ -176,6 +182,31 @@ def validate_language(value: str) -> ToolResult[Language]:
             )
 
     return ToolResult.success(lang)
+
+
+def validate_cron_schedule(value: str) -> ToolResult[str]:
+    """Valida uma expressao cron (5 campos) ou um macro do K8s (ex.: @daily)."""
+    if not value or not isinstance(value, str):
+        return ToolResult.failure("Agendamento (cron) nao informado.", code="cron.empty")
+
+    cron = " ".join(value.split())  # normaliza espacos
+
+    if cron in _CRON_MACROS:
+        return ToolResult.success(cron)
+
+    fields = cron.split(" ")
+    if len(fields) != 5:
+        return ToolResult.failure(
+            "Cron deve ter 5 campos (minuto hora dia mes dia-da-semana), "
+            "ex.: '0 2 * * *'. Ou use um macro como @daily.",
+            code="cron.bad_field_count",
+        )
+    if not all(_CRON_FIELD_RE.match(f) for f in fields):
+        return ToolResult.failure(
+            "Cron invalido. Use apenas digitos e os caracteres * , - / em cada campo.",
+            code="cron.invalid_format",
+        )
+    return ToolResult.success(cron)
 
 
 def validate_branch_name(branch: str) -> ToolResult[str]:

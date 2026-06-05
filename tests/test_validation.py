@@ -8,6 +8,7 @@ from devops_agent.models import AppType, Language
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
+    validate_cron_schedule,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -152,6 +153,39 @@ class TestValidateLanguage:
         r = validate_language(entrada)
         assert not r.ok
         assert r.error_code in {"language.empty", "language.invalid"}
+
+
+class TestValidateCronSchedule:
+    @pytest.mark.parametrize(
+        ("entrada", "esperado"),
+        [
+            ("0 2 * * *", "0 2 * * *"),
+            ("*/15 * * * *", "*/15 * * * *"),
+            ("0 0 1,15 * *", "0 0 1,15 * *"),
+            ("  0   2   *   *   *  ", "0 2 * * *"),  # normaliza espacos
+            ("@daily", "@daily"),
+            ("@hourly", "@hourly"),
+        ],
+    )
+    def test_aceita_cron_valido(self, entrada: str, esperado: str) -> None:
+        r = validate_cron_schedule(entrada)
+        assert r.ok, r.error
+        assert r.data == esperado
+
+    @pytest.mark.parametrize(
+        ("entrada", "code"),
+        [
+            ("", "cron.empty"),
+            ("0 2 * *", "cron.bad_field_count"),  # 4 campos
+            ("0 2 * * * *", "cron.bad_field_count"),  # 6 campos
+            ("0 2 * * seg", "cron.invalid_format"),  # caractere invalido
+            ("@yearlyish", "cron.bad_field_count"),  # macro desconhecido vira 1 campo
+        ],
+    )
+    def test_rejeita_cron_invalido(self, entrada: str, code: str) -> None:
+        r = validate_cron_schedule(entrada)
+        assert not r.ok
+        assert r.error_code == code
 
 
 class TestValidateBranchName:

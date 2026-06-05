@@ -102,6 +102,44 @@ class TestValidateAppTypeTool:
         assert session.app_type == AppType.WEB
         assert session.phase == Phase.VALIDATE
 
+    def test_cronjob_vai_para_ask_schedule(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        call = ToolCall(id="t1", name="validate_app_type", arguments={"value": "cronjob"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.app_type == AppType.CRONJOB
+        assert session.phase == Phase.ASK_SCHEDULE
+
+
+class TestSetScheduleTool:
+    def test_define_schedule_e_vai_para_detect_language(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.app_type = AppType.CRONJOB
+        session.phase = Phase.ASK_SCHEDULE
+        call = ToolCall(id="t1", name="set_schedule", arguments={"schedule": "@daily"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.schedule == "@daily"
+        assert session.phase == Phase.DETECT_LANGUAGE
+
+    def test_recusa_se_nao_for_cronjob(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.app_type = AppType.API
+        call = ToolCall(id="t1", name="set_schedule", arguments={"schedule": "0 2 * * *"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "schedule.not_cronjob"
+
+    def test_cron_invalido_falha(self, settings: Settings, session: SessionState) -> None:
+        session.app_type = AppType.CRONJOB
+        call = ToolCall(id="t1", name="set_schedule", arguments={"schedule": "0 2 *"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "cron.bad_field_count"
+
 
 class TestDetectLanguageTool:
     def _seed_repo(self, session: SessionState) -> None:
