@@ -64,16 +64,45 @@ class TestBuildBundle:
     ) -> None:
         bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
         paths = bundle.all_helm_paths
-        chart_root = "charts/payments-api"
+        chart_root = "helm/apps/payments-api"
         assert f"{chart_root}/Chart.yaml" in paths
         assert f"{chart_root}/values.yaml" in paths
         assert f"{chart_root}/templates/_helpers.tpl" in paths
         assert f"{chart_root}/templates/serviceaccount.yaml" in paths
         assert f"{chart_root}/templates/{_WORKLOAD_TEMPLATE[app_type]}" in paths
 
+
+class TestEnvironments:
+    def test_gera_override_por_ambiente_default(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        paths = set(bundle.all_helm_paths)
+        for env in ("dev", "qa", "uat", "prod"):
+            assert f"environments/{env}/payments-api/values.yaml" in paths
+
+    def test_environments_customizado(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, environments=["dev", "prod"], **base_ctx  # type: ignore[arg-type]
+        )
+        paths = set(bundle.all_helm_paths)
+        assert "environments/dev/payments-api/values.yaml" in paths
+        assert "environments/prod/payments-api/values.yaml" in paths
+        assert "environments/qa/payments-api/values.yaml" not in paths
+
+    def test_override_e_yaml_valido_e_fino(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        ev = next(
+            f for f in bundle.helm_chart_files
+            if f.path == "environments/prod/payments-api/values.yaml"
+        )
+        parsed = yaml.safe_load(ev.content)
+        # override fino: so o que muda por ambiente, sem reproduzir probes/resources
+        assert "image" in parsed
+        assert "resources" not in parsed
+        assert "probes" not in parsed
+
     def test_api_inclui_service_ingress_hpa(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
-        chart_root = "charts/payments-api"
+        chart_root = "helm/apps/payments-api"
         paths = set(bundle.all_helm_paths)
         assert f"{chart_root}/templates/service.yaml" in paths
         assert f"{chart_root}/templates/ingress.yaml" in paths
@@ -81,7 +110,7 @@ class TestBuildBundle:
 
     def test_worker_nao_inclui_service_nem_ingress(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
-        chart_root = "charts/payments-api"
+        chart_root = "helm/apps/payments-api"
         paths = set(bundle.all_helm_paths)
         assert f"{chart_root}/templates/service.yaml" not in paths
         assert f"{chart_root}/templates/ingress.yaml" not in paths
@@ -89,7 +118,7 @@ class TestBuildBundle:
 
     def test_web_inclui_service_ingress(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
-        chart_root = "charts/payments-api"
+        chart_root = "helm/apps/payments-api"
         paths = set(bundle.all_helm_paths)
         assert f"{chart_root}/templates/service.yaml" in paths
         assert f"{chart_root}/templates/ingress.yaml" in paths
@@ -99,7 +128,7 @@ class TestBuildBundle:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
-        chart_root = "charts/payments-api"
+        chart_root = "helm/apps/payments-api"
         paths = set(bundle.all_helm_paths)
         assert f"{chart_root}/templates/cronjob.yaml" in paths
         assert f"{chart_root}/templates/deployment.yaml" not in paths
@@ -208,7 +237,9 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert parsed["service"]["port"] == 80
         assert parsed["service"]["targetPort"] == 8080
@@ -221,7 +252,9 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert "service" not in parsed
         assert "ingress" not in parsed
@@ -233,7 +266,9 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert parsed["ingress"]["enabled"] is True
         assert parsed["ingress"]["tls"][0]["secretName"] == "payments-api-tls"
@@ -244,7 +279,9 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert "service" not in parsed
         assert "ingress" not in parsed
@@ -260,7 +297,9 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert parsed["cronjob"]["schedule"] == "0 * * * *"
 
@@ -271,7 +310,9 @@ class TestRenderedContent:
         bundle = build_bundle(
             app_type=AppType.CRONJOB, schedule="30 3 * * 1", **base_ctx  # type: ignore[arg-type]
         )
-        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        values = next(
+            f for f in bundle.helm_chart_files if f.path == "helm/apps/payments-api/values.yaml"
+        )
         parsed = yaml.safe_load(values.content)
         assert parsed["cronjob"]["schedule"] == "30 3 * * 1"
 
@@ -385,12 +426,12 @@ class TestDryRun:
     def test_detecta_colisao_no_repo_helm(self, base_ctx: dict[str, object]) -> None:
         r = dry_run(
             app_type=AppType.API,
-            existing_helm_repo_paths={"charts/payments-api/Chart.yaml"},
+            existing_helm_repo_paths={"helm/apps/payments-api/Chart.yaml"},
             **base_ctx,  # type: ignore[arg-type]
         )
         assert r.ok
         assert r.data is not None
-        assert "charts/payments-api/Chart.yaml" in r.data.helm_repo_collisions
+        assert "helm/apps/payments-api/Chart.yaml" in r.data.helm_repo_collisions
 
     def test_normalizacao_de_path_evita_falso_negativo(
         self,

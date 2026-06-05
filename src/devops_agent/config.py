@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     devops_template_node: str | None = None
     devops_template_python: str | None = None
     devops_template_go: str | None = None
+    # Ambientes para os quais gerar environments/<env>/<app>/values.yaml (override por env).
+    devops_environments: str = "dev,qa,uat,prod"
     # Emite `language` em extends.parameters da pipeline. So ative apos a tag do
     # devops-templates (DEVOPS_TEMPLATES_TAG) declarar esse parametro, senao a
     # compilacao da pipeline gerada falha com "Unexpected parameter 'language'".
@@ -58,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.azure_openai_endpoint and self.azure_openai_api_key)
+
+    @property
+    def environments(self) -> list[str]:
+        return [e.strip() for e in self.devops_environments.split(",") if e.strip()]
 
     @model_validator(mode="after")
     def _validate_sp_mode(self) -> "Settings":
