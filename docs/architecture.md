@@ -313,13 +313,12 @@ POC completa em [`src/devops_agent/`](../src/devops_agent/). **101 testes passan
 
 **Implementado (modo de auth `sp`):**
 - Service Principal via Entra ID (`AZDO_AUTH_MODE=sp`): app token por `ClientSecretCredential` (secret no Key Vault) ou `DefaultAzureCredential` (Managed Identity da Container App = o "WIF" do ADR; em AKS seria workload identity). Token usado para clone/push/PR (header `Authorization: Bearer`).
-- `check_user_permission` via OBO antes de qualquer clone: troca a assercao do usuario (`OnBehalfOfCredential`, usando o client secret no MVP) por um token Azure DevOps e avalia `Contribute` no repo (permissionevaluationbatch). Fail-closed: recusa sem usar o SP.
+- `check_user_permission` via OBO antes de qualquer clone: troca a assercao do usuario (`OnBehalfOfCredential`) por um token Azure DevOps e avalia `Contribute` no repo (permissionevaluationbatch). O app se autentica no OBO via client secret OU, sem secret, via client assertion emitido pela Managed Identity (federated identity credential). Fail-closed: recusa sem usar o SP.
+- Assercao do usuario obtida do front-end (`--user-token`/`AZDO_AGENT_USER_ASSERTION`) ou via login interativo device code (`AZDO_LOGIN_CLIENT_ID`).
 - Auditoria "on behalf of" no corpo do PR.
 
 **Pendente para producao:**
 - Hosting em Azure Container Apps
-- Login MSAL interativo no CLI para obter a assercao do usuario localmente (hoje injetada via `--user-token`/`AZDO_AGENT_USER_ASSERTION`)
-- OBO sem client secret (via assertion da Managed Identity)
 - Teams bot / SPA front-end
 - App Insights / OpenTelemetry
 - Redis para sessao persistente
