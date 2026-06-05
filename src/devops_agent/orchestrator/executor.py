@@ -23,7 +23,13 @@ from devops_agent.tools.git_ops import (
     temp_workspace,
     write_files,
 )
-from devops_agent.tools.scaffold import DryRunResult, ScaffoldBundle, build_bundle, dry_run
+from devops_agent.tools.scaffold import (
+    DEFAULT_CRON_SCHEDULE,
+    DryRunResult,
+    ScaffoldBundle,
+    build_bundle,
+    dry_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +152,7 @@ def prepare_dry_run(
         app_name=session.app_name,
         app_type=session.app_type,
         language=session.language or Language.DOTNET,
+        schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         namespace=session.namespace,
         branch=session.branch,
         acr_name=acr_name,

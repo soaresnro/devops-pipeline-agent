@@ -174,6 +174,26 @@ class TestRenderedContent:
         assert parsed["cronjob"]["concurrencyPolicy"] == "Forbid"
         assert parsed["cronjob"]["restartPolicy"] == "OnFailure"
 
+    def test_values_yaml_cronjob_usa_schedule_default(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert parsed["cronjob"]["schedule"] == "0 * * * *"
+
+    def test_values_yaml_cronjob_usa_schedule_informado(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.CRONJOB, schedule="30 3 * * 1", **base_ctx  # type: ignore[arg-type]
+        )
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert parsed["cronjob"]["schedule"] == "30 3 * * 1"
+
     def test_cronjob_yaml_e_template_de_cronjob_kubernetes(
         self,
         base_ctx: dict[str, object],

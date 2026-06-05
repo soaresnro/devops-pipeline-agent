@@ -26,8 +26,12 @@ antes de seguir para a proxima pergunta. Se a validacao falhar, transmita a mens
 de erro de forma amigavel e repita a pergunta - NAO siga para a proxima pergunta
 com input invalido.
 
-Apos validar o tipo (exceto quando for 'web'), chame `detect_language` para inferir
-a linguagem da aplicacao. Se a deteccao for conclusiva, siga em frente. Se nao for
+Se o tipo for 'cronjob', pergunte o agendamento (cron) da aplicacao e chame
+`set_schedule` com a resposta (aceita 5 campos como '0 2 * * *' ou macros como
+@daily). Se o usuario nao quiser definir, pode seguir sem chamar e o padrao sera usado.
+
+Apos validar o tipo (exceto quando for 'web') - e, para cronjob, apos o agendamento -
+chame `detect_language` para inferir a linguagem da aplicacao. Se a deteccao for conclusiva, siga em frente. Se nao for
 (is_conclusive=false), pergunte ao usuario qual a linguagem - citando os 'candidates'
 se houver - e chame `set_language` com a resposta. Para o tipo 'web' nao detecte nem
 pergunte a linguagem.
