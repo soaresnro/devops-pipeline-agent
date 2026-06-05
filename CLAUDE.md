@@ -8,6 +8,8 @@ Agente conversacional que automatiza criacao de pipelines CI/CD no Azure DevOps.
 
 Documento de arquitetura completo: [`docs/architecture.md`](docs/architecture.md).
 
+Estado do projeto, backlog e preferencias de trabalho (PR-only, etc.): [`docs/agent-context.md`](docs/agent-context.md) — fonte de verdade portatil que viaja com o repo (a memoria local do Claude Code nao e clonada). Mantenha atualizado ao concluir features.
+
 ## Comandos comuns
 
 **Setup:**
