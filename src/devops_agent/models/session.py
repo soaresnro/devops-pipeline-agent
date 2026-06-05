@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_agent.models.inputs import AppType, RepoCoordinates
+from devops_agent.models.inputs import AppType, Language, RepoCoordinates
 
 
 class Phase(StrEnum):
@@ -18,6 +18,8 @@ class Phase(StrEnum):
     ASK_BRANCH = "ask_branch"
     ASK_NAMESPACE = "ask_namespace"
     ASK_APP_TYPE = "ask_app_type"
+    DETECT_LANGUAGE = "detect_language"
+    ASK_LANGUAGE = "ask_language"
     VALIDATE = "validate"
     CONFIRM = "confirm"
     EXECUTE = "execute"
@@ -49,6 +51,8 @@ class SessionState(BaseModel):
     namespace: str | None = None
     app_type: AppType | None = None
     app_name: str | None = None
+    language: Language | None = None
+    language_candidates: list[Language] = Field(default_factory=list)
 
     confirmed: bool = False
     execution: ExecutionResult | None = None

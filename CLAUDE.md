@@ -4,7 +4,7 @@ Guidance para o Claude Code trabalhar neste repositorio.
 
 ## Visao geral
 
-Agente conversacional que automatiza criacao de pipelines CI/CD no Azure DevOps. Escopo MVP: deploy em AKS, imagens em ACR, Helm chart. Faz 4 perguntas (repo, branch, namespace, tipo: api/worker/web) e gera Dockerfile + azure-pipelines.yaml no repo da aplicacao alem do Helm chart no repo `devops-templates` do time de DevOps, abrindo PRs nos dois.
+Agente conversacional que automatiza criacao de pipelines CI/CD no Azure DevOps. Escopo MVP: deploy em AKS, imagens em ACR, Helm chart. Faz 4 perguntas (repo, branch, namespace, tipo: api/worker/web/cronjob), detecta a linguagem do repo (dotnet/node/python/go) via Items API - perguntando ao usuario quando inconclusivo - e gera Dockerfile + azure-pipelines.yaml no repo da aplicacao alem do Helm chart no repo `devops-templates` do time de DevOps, abrindo PRs nos dois.
 
 Documento de arquitetura completo: [`docs/architecture.md`](docs/architecture.md).
 
@@ -20,7 +20,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (101 testes)
+.venv\Scripts\python -m pytest          # toda a suite (160 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -43,10 +43,11 @@ src/devops_agent/
     state_machine.py  Handlers puros das fases (sem LLM)
     executor.py       Pipeline EXECUTE: clone duplo + write + commit + push + PR duplo
   tools/
-    validation.py     Validacao de URL (allowlist), branch, namespace (RFC 1123), tipo
+    validation.py     Validacao de URL (allowlist), branch, namespace (RFC 1123), tipo, linguagem
+    detection.py      Deteccao pura de linguagem por marcadores (csproj/package.json/...)
     scaffold.py       Render Jinja2 + dry_run + deteccao de colisao
     git_ops.py        subprocess git em workdir efemero
-    azdo.py           Cliente httpx para Azure DevOps REST API
+    azdo.py           Cliente httpx para Azure DevOps REST API (inclui list_root_items)
   llm/
     schemas.py        Tools em formato OpenAI function calling
     client.py         LLMClient (Protocol), AzureOpenAIClient, FakeLLMClient
@@ -55,12 +56,12 @@ src/devops_agent/
     agent.py          Agent loop conversacional com tool budget
   templates/
     pipeline/         azure-pipelines.yaml.j2 (extends template DevOps por tag)
-    dockerfile/       api/worker/web Dockerfile.j2
+    dockerfile/       dotnet/node/python/go Dockerfile.j2 (por linguagem, condicional por tipo) + web (nginx)
     helm/_common/     Chart.yaml, values.yaml, _helpers.tpl, serviceaccount
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                101 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                160 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -97,7 +98,8 @@ Ver `docs/architecture.md` secao 12. Resumo:
 
 ## Tarefas tipicas
 
-- **Adicionar novo tipo de aplicacao** (ex.: `cronjob`): adicionar valor em `AppType` (`models/inputs.py`), criar pasta `templates/helm/<tipo>/templates/`, registrar defaults em `TYPE_DEFAULTS` (`tools/scaffold.py`), adicionar `<tipo>.Dockerfile.j2`. Testes de scaffold ja parametrizam por `AppType` — vao cobrir automaticamente.
+- **Adicionar novo tipo de aplicacao** (ex.: `cronjob`): adicionar valor em `AppType` (`models/inputs.py`), criar pasta `templates/helm/<tipo>/templates/`, registrar defaults em `TYPE_DEFAULTS` (`tools/scaffold.py`), e adicionar o branch do `<tipo>` (EXPOSE/HEALTHCHECK/entrypoint) em cada `templates/dockerfile/<linguagem>.Dockerfile.j2`. Testes de scaffold ja parametrizam por `AppType` — vao cobrir automaticamente.
+- **Adicionar nova linguagem**: adicionar valor em `Language` (`models/inputs.py`), marcadores em `_LANGUAGE_MARKERS` (`tools/detection.py`), aliases em `_LANGUAGE_ALIASES` (`tools/validation.py`), e `templates/dockerfile/<linguagem>.Dockerfile.j2` (condicional por `app_type`).
 - **Adicionar nova validacao**: nova funcao em `tools/validation.py` retornando `ToolResult`. Se for tool exposta ao LLM, adicionar schema em `llm/schemas.py` e handler em `llm/dispatcher.py`.
 - **Mudar reviewer/branch de PR**: editar `orchestrator/executor.py`. Comportamento esta concentrado em `execute()`.
 - **Trocar provider de LLM**: implementar `LLMClient` protocol (`llm/client.py`); resto do codigo nao muda.

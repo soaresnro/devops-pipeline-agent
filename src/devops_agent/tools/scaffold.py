@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from pydantic import BaseModel
 
-from devops_agent.models import AppType, ToolResult
+from devops_agent.models import AppType, Language, ToolResult
 
 
 class ScaffoldedFile(BaseModel):
@@ -147,6 +147,7 @@ def _build_template_context(
     *,
     app_name: str,
     app_type: AppType,
+    language: Language,
     namespace: str,
     branch: str,
     acr_name: str,
@@ -157,6 +158,7 @@ def _build_template_context(
     return {
         "app_name": app_name,
         "app_type": app_type.value,
+        "language": language.value,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -173,8 +175,16 @@ def _build_template_context(
     }
 
 
-def render_dockerfile(app_type: AppType, context: dict[str, object]) -> str:
-    return _render_template(f"dockerfile/{app_type.value}.Dockerfile.j2", context)
+def render_dockerfile(
+    app_type: AppType,
+    language: Language,
+    context: dict[str, object],
+) -> str:
+    # web e sempre uma SPA estatica servida por nginx (build Node), independente
+    # da linguagem detectada. Os demais tipos escolhem o template pela linguagem.
+    if app_type == AppType.WEB:
+        return _render_template("dockerfile/web.Dockerfile.j2", context)
+    return _render_template(f"dockerfile/{language.value}.Dockerfile.j2", context)
 
 
 def render_pipeline_yaml(context: dict[str, object]) -> str:
@@ -218,11 +228,13 @@ def build_bundle(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    language: Language = Language.DOTNET,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     ctx = _build_template_context(
         app_name=app_name,
         app_type=app_type,
+        language=language,
         namespace=namespace,
         branch=branch,
         acr_name=acr_name,
@@ -231,7 +243,7 @@ def build_bundle(
     )
 
     app_files = [
-        ScaffoldedFile(path="Dockerfile", content=render_dockerfile(app_type, ctx)),
+        ScaffoldedFile(path="Dockerfile", content=render_dockerfile(app_type, language, ctx)),
         ScaffoldedFile(
             path="azure-pipelines.yaml",
             content=render_pipeline_yaml(ctx),
@@ -251,6 +263,7 @@ def dry_run(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    language: Language = Language.DOTNET,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -259,6 +272,7 @@ def dry_run(
         bundle = build_bundle(
             app_name=app_name,
             app_type=app_type,
+            language=language,
             namespace=namespace,
             branch=branch,
             acr_name=acr_name,

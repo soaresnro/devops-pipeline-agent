@@ -63,9 +63,14 @@ class TestFluxoFeliz:
                 _txt("Qual o namespace?"),
                 # send("payments-prod"):
                 _call("validate_namespace", {"namespace": "payments-prod"}),
-                _txt("API, Worker ou Web?"),
-                # send("api"):
+                _txt("API, Worker, Web ou CronJob?"),
+                # send("api"): valida tipo e tenta detectar linguagem.
+                # Sem PAT, detect_language e inconclusivo -> LLM pergunta a linguagem.
                 _call("validate_app_type", {"value": "api"}),
+                _call("detect_language", {}),
+                _txt("Nao identifiquei a linguagem. Qual e: dotnet, node, python ou go?"),
+                # send("python"): define linguagem e segue para o scaffold.
+                _call("set_language", {"language": "python"}),
                 _call("propose_scaffold", {}),
                 _txt("Vou criar Dockerfile + azure-pipelines.yaml + helm chart. Confirma?"),
                 # send("nao"):
@@ -88,9 +93,15 @@ class TestFluxoFeliz:
         assert session.namespace == "payments-prod"
         assert session.phase == Phase.ASK_APP_TYPE
 
-        agent.send("api")
+        # Tipo validado + deteccao inconclusiva -> agente pergunta a linguagem.
+        resp = agent.send("api")
         assert session.app_type is not None
-        # apos propose_scaffold:
+        assert session.phase == Phase.ASK_LANGUAGE
+        assert "linguagem" in resp.lower()
+
+        # Usuario informa a linguagem -> set_language + propose_scaffold -> CONFIRM.
+        agent.send("python")
+        assert session.language is not None
         assert session.phase == Phase.CONFIRM
 
         final = agent.send("nao")

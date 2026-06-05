@@ -197,6 +197,55 @@ class AzdoClient:
             )
         )
 
+    def list_root_items(
+        self,
+        project: str,
+        repository: str,
+        branch: str,
+    ) -> ToolResult[list[str]]:
+        """Lista os paths de arquivos do repo na branch (sem clone), para deteccao de linguagem.
+
+        Usa a Items API com recursao Full; retorna apenas paths de arquivos
+        (sem pastas), normalizados sem a barra inicial.
+        """
+        try:
+            resp = self._request(
+                "GET",
+                f"/{project}/_apis/git/repositories/{repository}/items",
+                params={
+                    "scopePath": "/",
+                    "recursionLevel": "Full",
+                    "versionDescriptor.version": branch,
+                    "versionDescriptor.versionType": "branch",
+                },
+            )
+        except httpx.RequestError as exc:
+            return ToolResult.failure(f"Falha de rede: {exc}", code="azdo.network")
+
+        if resp.status_code == 404:
+            return ToolResult.failure(
+                f"Repo '{repository}' ou branch '{branch}' nao encontrado.",
+                code="azdo.items_not_found",
+            )
+        if resp.status_code in (401, 403):
+            return ToolResult.failure(
+                "Agente sem permissao para listar arquivos deste repo.",
+                code="azdo.items_forbidden",
+            )
+        if resp.status_code >= 400:
+            return ToolResult.failure(
+                f"Azure DevOps respondeu {resp.status_code}.",
+                code="azdo.http_error",
+            )
+
+        payload = resp.json()
+        paths = [
+            str(item["path"]).lstrip("/")
+            for item in payload.get("value", [])
+            if not item.get("isFolder", False) and item.get("path")
+        ]
+        return ToolResult.success(paths)
+
     def create_pull_request(
         self,
         project: str,
