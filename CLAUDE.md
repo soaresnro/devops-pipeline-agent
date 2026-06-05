@@ -20,7 +20,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (204 testes)
+.venv\Scripts\python -m pytest          # toda a suite (206 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -61,7 +61,7 @@ src/devops_agent/
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                204 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                206 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
