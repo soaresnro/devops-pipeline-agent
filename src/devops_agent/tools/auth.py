@@ -6,6 +6,8 @@ Dois tokens distintos (ADR-001):
   (Managed Identity em Container Apps = o "WIF" do ADR; workload identity em AKS).
 - OBO token: identidade do usuario humano, usado SO para check_user_permission.
   Troca o token de assercao do usuario por um token com audience Azure DevOps.
+  O app se autentica no OBO via client secret OU, sem secret, via client assertion
+  emitido pela Managed Identity (federated identity credential).
 
 As funcoes nunca propagam excecao - sempre retornam ToolResult.
 """
@@ -26,6 +28,10 @@ from devops_agent.models import ToolResult
 
 # Resource ID fixo do Azure DevOps; ".default" pede os scopes pre-consentidos.
 AZDO_RESOURCE_SCOPE = "499b84ac-1321-427f-aa17-267ca6975798/.default"
+
+# Audience da troca de token federada (Workload Identity): a Managed Identity
+# emite um token para este escopo que serve de client assertion do app no OBO.
+_TOKEN_EXCHANGE_SCOPE = "api://AzureADTokenExchange/.default"
 
 
 def acquire_app_token(settings: Settings) -> ToolResult[str]:
@@ -92,12 +98,23 @@ def acquire_user_obo_token(settings: Settings, user_assertion: str) -> ToolResul
             code="auth.obo_missing_assertion",
         )
     try:
-        credential = OnBehalfOfCredential(
-            tenant_id=settings.azdo_sp_tenant_id or "",
-            client_id=settings.azdo_sp_client_id or "",
-            client_secret=settings.azdo_sp_client_secret or "",
-            user_assertion=user_assertion,
-        )
+        if settings.azdo_sp_client_secret:
+            credential = OnBehalfOfCredential(
+                tenant_id=settings.azdo_sp_tenant_id or "",
+                client_id=settings.azdo_sp_client_id or "",
+                client_secret=settings.azdo_sp_client_secret,
+                user_assertion=user_assertion,
+            )
+        else:
+            # Sem secret: o app se autentica com um client assertion emitido pela
+            # Managed Identity (federated identity credential), eliminando o secret.
+            mi = DefaultAzureCredential()
+            credential = OnBehalfOfCredential(
+                tenant_id=settings.azdo_sp_tenant_id or "",
+                client_id=settings.azdo_sp_client_id or "",
+                client_assertion_func=lambda: mi.get_token(_TOKEN_EXCHANGE_SCOPE).token,
+                user_assertion=user_assertion,
+            )
         token = credential.get_token(AZDO_RESOURCE_SCOPE)
     except (ClientAuthenticationError, ValueError) as exc:
         return ToolResult.failure(
