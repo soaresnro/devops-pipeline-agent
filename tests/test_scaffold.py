@@ -115,6 +115,37 @@ class TestRenderedContent:
         assert parsed["extends"]["parameters"]["appType"] == "api"
         assert parsed["extends"]["parameters"]["exposeExternal"] is False
 
+    def test_pipeline_nao_passa_language_por_padrao(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert "language" not in parsed["extends"]["parameters"]
+
+    def test_pipeline_passa_language_quando_habilitado(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            language=Language.GO,
+            pipeline_pass_language=True,
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["extends"]["parameters"]["language"] == "go"
+
+    def test_pipeline_web_nao_passa_language_mesmo_habilitado(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.WEB,
+            pipeline_pass_language=True,
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert "language" not in parsed["extends"]["parameters"]
+
     def test_chart_yaml_e_yaml_valido(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         chart = next(f for f in bundle.helm_chart_files if f.path.endswith("Chart.yaml"))

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
     devops_templates_reviewers: str = "devops-team"
+    # Emite `language` em extends.parameters da pipeline. So ative apos a tag do
+    # devops-templates (DEVOPS_TEMPLATES_TAG) declarar esse parametro, senao a
+    # compilacao da pipeline gerada falha com "Unexpected parameter 'language'".
+    pipeline_pass_language: bool = False
 
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
