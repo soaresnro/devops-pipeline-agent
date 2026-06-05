@@ -29,7 +29,7 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **210 testes**, `mypy --strict` limpo. Publicado no GitHub
+MVP/POC completo e verde: **215 testes**, `mypy --strict` limpo. Publicado no GitHub
 em `https://github.com/soaresnro/devops-pipeline-agent` (licenca MIT).
 
 Backlog escolhido **100% concluido** — cada item virou um PR:
@@ -71,8 +71,10 @@ PAT com escopo **Code (Read & Write)**. Deixe `DEVOPS_TEMPLATES_REVIEWERS` vazio
 1. `devops-agent scaffold` faz as perguntas, mostra o resumo e pergunta `confirma?`.
    Responder `nao` = dry-run seguro (nada e escrito). `sim` = abre os 2 PRs
    (app: Dockerfile + azure-pipelines.yaml; devops-templates: Helm chart).
-2. Para a pipeline **compilar/rodar**, o template `pipelines/k8s-app.yaml` precisa
-   existir no repo `devops-templates` **na tag** `DEVOPS_TEMPLATES_TAG` (referencia
-   por tag, nunca branch). Um stub que so ecoa os parametros ja roda verde sem AKS/ACR.
+2. Para a pipeline **compilar/rodar**, o template referenciado precisa existir no
+   repo `devops-templates` **na tag** `DEVOPS_TEMPLATES_TAG` (referencia por tag,
+   nunca branch). O caminho e escolhido pela linguagem via `DEVOPS_TEMPLATE_<LINGUAGEM>`
+   (fallback `DEVOPS_TEMPLATE_DEFAULT=pipelines/k8s-app.yaml`; web usa o de node). Um
+   stub que so ecoa os parametros ja roda verde sem AKS/ACR.
 3. Criar a *definicao* da Pipeline no Azure DevOps apontando para `azure-pipelines.yaml`
    (o agente entrega os arquivos via PR, mas nao cria a Pipeline nem o cluster).

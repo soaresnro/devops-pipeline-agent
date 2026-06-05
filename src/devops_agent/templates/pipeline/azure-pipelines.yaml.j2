@@ -16,7 +16,7 @@ resources:
       ref: refs/tags/{{ devops_templates_tag }}
 
 extends:
-  template: pipelines/k8s-app.yaml@devops-templates
+  template: {{ pipeline_template_path }}@devops-templates
   parameters:
     appName: {{ app_name }}
     appType: {{ app_type }}

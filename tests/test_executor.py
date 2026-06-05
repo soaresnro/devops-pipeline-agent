@@ -220,6 +220,37 @@ class TestDetectLanguageStepSp:
         assert confirmed_session.phase == Phase.ASK_LANGUAGE
 
 
+class TestPipelineTemplatePath:
+    def _settings(self, **extra: object) -> Settings:
+        base = dict(
+            azdo_org="contoso",
+            devops_templates_repo_url="https://dev.azure.com/contoso/Platform/_git/devops-templates",
+        )
+        return Settings(**{**base, **extra})  # type: ignore[arg-type]
+
+    def test_usa_template_da_linguagem(self) -> None:
+        s = self._settings(devops_template_go="pipelines/go-k8s-app.yaml")
+        assert (
+            exec_mod._pipeline_template_path(s, AppType.API, Language.GO)
+            == "pipelines/go-k8s-app.yaml"
+        )
+
+    def test_linguagem_sem_template_cai_no_default(self) -> None:
+        s = self._settings(devops_template_default="pipelines/generico.yaml")
+        assert (
+            exec_mod._pipeline_template_path(s, AppType.WORKER, Language.PYTHON)
+            == "pipelines/generico.yaml"
+        )
+
+    def test_web_reaproveita_template_de_node(self) -> None:
+        s = self._settings(devops_template_node="pipelines/node-k8s-app.yaml")
+        # web ignora a linguagem detectada (passada como dotnet) e usa o de node
+        assert (
+            exec_mod._pipeline_template_path(s, AppType.WEB, Language.DOTNET)
+            == "pipelines/node-k8s-app.yaml"
+        )
+
+
 class TestPatModeInalterado:
     @respx.mock
     def test_pat_nao_faz_obo_e_abre_pr(
