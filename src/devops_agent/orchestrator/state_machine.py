@@ -14,6 +14,7 @@ from devops_agent.models import AppType, Phase, SessionState
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
+    validate_cron_schedule,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -35,6 +36,7 @@ _QUESTIONS = {
     Phase.ASK_BRANCH: "Em qual branch devo adicionar os arquivos da pipeline?",
     Phase.ASK_NAMESPACE: "Qual o namespace Kubernetes onde a aplicacao deve ficar?",
     Phase.ASK_APP_TYPE: "Sua aplicacao e API, Worker, Web ou CronJob?",
+    Phase.ASK_SCHEDULE: "Qual o agendamento (cron) do CronJob? Ex.: '0 2 * * *' ou @daily.",
     Phase.ASK_LANGUAGE: "Nao consegui detectar a linguagem. Qual a linguagem da aplicacao?",
 }
 
@@ -126,10 +128,45 @@ def handle_app_type(session: SessionState, user_input: str) -> StepResult:
             awaits_input=False,
         )
 
+    # cronjob precisa do agendamento antes de prosseguir.
+    if result.data == AppType.CRONJOB:
+        session.phase = Phase.ASK_SCHEDULE
+        return StepResult(
+            next_phase=Phase.ASK_SCHEDULE,
+            message_to_user=f"Tipo: {result.data.value}\n" + _QUESTIONS[Phase.ASK_SCHEDULE],
+        )
+
     session.phase = Phase.DETECT_LANGUAGE
     return StepResult(
         next_phase=Phase.DETECT_LANGUAGE,
         message_to_user=f"Tipo: {result.data.value}\nDetectando a linguagem...",
+        awaits_input=False,
+    )
+
+
+def handle_schedule(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia mantem o default do scaffold (session.schedule permanece None).
+    if not user_input.strip():
+        session.phase = Phase.DETECT_LANGUAGE
+        return StepResult(
+            next_phase=Phase.DETECT_LANGUAGE,
+            message_to_user="Mantendo o agendamento padrao.\nDetectando a linguagem...",
+            awaits_input=False,
+        )
+
+    result = validate_cron_schedule(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_SCHEDULE,
+            message_to_user=result.error or "Agendamento invalido.",
+            error=result.error,
+        )
+
+    session.schedule = result.data
+    session.phase = Phase.DETECT_LANGUAGE
+    return StepResult(
+        next_phase=Phase.DETECT_LANGUAGE,
+        message_to_user=f"Agendamento: {result.data}\nDetectando a linguagem...",
         awaits_input=False,
     )
 

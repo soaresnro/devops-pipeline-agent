@@ -84,6 +84,16 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_SCHEDULE:
+        _print_agent(sm.question_for(Phase.ASK_SCHEDULE))
+        raw = _ask("(enter para manter '0 * * * *') >")
+        step = sm.handle_schedule(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.DETECT_LANGUAGE:
         # Fase transitoria: detecta via API (sem input) e segue para VALIDATE ou ASK_LANGUAGE.
         detection = exec_mod.detect_language_step(session, settings).data  # type: ignore[arg-type]
