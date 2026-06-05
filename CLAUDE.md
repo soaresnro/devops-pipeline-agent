@@ -118,3 +118,5 @@ Ver `docs/architecture.md` secao 12. Resumo:
 - `test_cli_e2e.py` — subprocess do CLI com stdin piped. ~3s.
 
 Antes de marcar uma feature como concluida, rode `pytest` completo. NAO confie em "rodei alguns testes".
+
+**Definition of Done:** alem de `pytest` verde e `mypy src` limpo, atualizar [`docs/agent-context.md`](docs/agent-context.md) **no mesmo PR** (estado/backlog, comandos ou preferencias). Detalhes la.
