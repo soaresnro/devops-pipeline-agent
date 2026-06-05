@@ -29,7 +29,9 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **242 testes**, `mypy --strict` limpo.
+MVP/POC completo e verde: **244 testes**, `mypy --strict` limpo. `validate_repo_url` aceita
+os formatos `dev.azure.com/<org>/...` e o legado `<org>.visualstudio.com/<projeto>/_git/<repo>`
+(org = subdominio). A allowlist `AZDO_ORG` compara com a org extraida da URL.
 
 **Adaptacao a templates reais do time (concluida para .NET):** (PR1) o bloco `extends.parameters` da
 pipeline e por stack (`templates/pipeline/<stack>/azure-pipelines.yaml.j2`); `dotnet` usa o contrato
