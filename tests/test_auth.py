@@ -122,12 +122,37 @@ class TestAcquireUserAssertionInteractive:
 
 
 class TestAcquireUserOboToken:
-    def test_sucesso(self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings) -> None:
+    def test_sucesso_com_secret(
+        self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings
+    ) -> None:
         monkeypatch.setattr(auth, "OnBehalfOfCredential", _FakeCred)
         r = auth.acquire_user_obo_token(sp_settings, "user-jwt")
         assert r.ok
         assert r.data == "fake-token"
         assert _FakeCred.last_kwargs["user_assertion"] == "user-jwt"
+        assert _FakeCred.last_kwargs.get("client_secret") == "secret"
+        assert "client_assertion_func" not in _FakeCred.last_kwargs
+
+    def test_sucesso_sem_secret_usa_managed_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = Settings(  # type: ignore[call-arg]
+            azdo_org="contoso",
+            azdo_auth_mode="sp",
+            azdo_sp_tenant_id="tenant",
+            azdo_sp_client_id="client",
+            # sem azdo_sp_client_secret -> caminho federado via MI
+            devops_templates_repo_url="https://dev.azure.com/contoso/Platform/_git/devops-templates",
+        )
+        monkeypatch.setattr(auth, "OnBehalfOfCredential", _FakeCred)
+        monkeypatch.setattr(auth, "DefaultAzureCredential", _FakeCred)
+        r = auth.acquire_user_obo_token(settings, "user-jwt")
+        assert r.ok
+        assert "client_secret" not in _FakeCred.last_kwargs
+        func = _FakeCred.last_kwargs["client_assertion_func"]
+        assert callable(func)
+        # a Managed Identity emite a client assertion sob demanda
+        assert func() == "fake-token"
 
     def test_sem_assertion_falha(self, sp_settings: Settings) -> None:
         r = auth.acquire_user_obo_token(sp_settings, "")
