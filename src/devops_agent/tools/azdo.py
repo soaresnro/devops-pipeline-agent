@@ -3,11 +3,12 @@
 Cobre apenas o subset necessario para o MVP:
 - get_repo: confirma que o repo existe e o agente tem acesso
 - get_branch: valida que a branch existe
-- check_user_permission: garante que o usuario humano tem direito de contribuir
+- list_root_items: lista arquivos para deteccao de linguagem
+- check_user_permission: garante que o usuario humano tem direito de contribuir (OBO)
 - create_pull_request: abre PR apos push
 
-Auth via Basic HTTP (PAT ou OAuth bearer). Service Principal sera adicionado
-quando integrarmos com Entra ID em ambiente real.
+Auth via header HTTP: Basic (PAT) ou Bearer (token Entra ID do SP ou OBO do
+usuario). O cliente e construido com a credencial apropriada conforme o caso.
 """
 
 from __future__ import annotations
@@ -33,10 +34,15 @@ logger = logging.getLogger(__name__)
 _API_VERSION = "7.1-preview.1"
 _TIMEOUT_SEC = 30.0
 
+# Security namespace dos repositorios Git e bit do GenericContribute (Azure DevOps).
+_GIT_REPO_NAMESPACE_ID = "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87"
+_CONTRIBUTE_BIT = 4
+
 
 class RepoInfo(BaseModel):
     id: str
     name: str
+    project_id: str | None = None
     default_branch: str | None = None
     url: str | None = None
 
@@ -155,6 +161,7 @@ class AzdoClient:
             RepoInfo(
                 id=payload["id"],
                 name=payload["name"],
+                project_id=(payload.get("project") or {}).get("id"),
                 default_branch=payload.get("defaultBranch"),
                 url=payload.get("webUrl") or payload.get("url"),
             )
@@ -245,6 +252,52 @@ class AzdoClient:
             if not item.get("isFolder", False) and item.get("path")
         ]
         return ToolResult.success(paths)
+
+    def check_user_permission(
+        self,
+        project_id: str,
+        repo_id: str,
+        *,
+        permission_bit: int = _CONTRIBUTE_BIT,
+    ) -> ToolResult[bool]:
+        """Avalia se o CALLER (identidade do token) tem a permissao no repo Git.
+
+        Deve ser chamado com um client construido com o token OBO do usuario
+        humano - assim a avaliacao reflete a permissao do usuario, nao a do SP.
+        Retorna data=True/False (permitido/negado) com ok=True; ok=False indica
+        falha de transporte/HTTP (o chamador deve tratar como fail-closed).
+        """
+        body: dict[str, Any] = {
+            "evaluations": [
+                {
+                    "securityNamespaceId": _GIT_REPO_NAMESPACE_ID,
+                    "token": f"repoV2/{project_id}/{repo_id}",
+                    "permissions": permission_bit,
+                }
+            ]
+        }
+        try:
+            resp = self._request(
+                "POST", "/_apis/security/permissionevaluationbatch", json=body
+            )
+        except httpx.RequestError as exc:
+            return ToolResult.failure(f"Falha de rede: {exc}", code="azdo.network")
+
+        if resp.status_code in (401, 403):
+            return ToolResult.failure(
+                "Sem permissao para consultar as permissoes do usuario.",
+                code="azdo.permission_query_forbidden",
+            )
+        if resp.status_code >= 400:
+            return ToolResult.failure(
+                f"Azure DevOps respondeu {resp.status_code}.",
+                code="azdo.http_error",
+            )
+
+        payload = resp.json()
+        evals = payload.get("evaluations") or []
+        allowed = bool(evals and evals[0].get("value") is True)
+        return ToolResult.success(allowed)
 
     def create_pull_request(
         self,

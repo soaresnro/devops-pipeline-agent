@@ -113,3 +113,20 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, inputs)
     assert result.returncode == 2
     assert "nao esta na allowlist" in result.stdout
+
+
+def test_cli_sp_sem_user_token_falha_com_orientacao(tmp_path: Path) -> None:
+    """Modo sp exige token do usuario (OBO); sem ele, sai com exit 2 antes de qualquer rede."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AZDO_ORG=contoso\n"
+        "AZDO_AUTH_MODE=sp\n"
+        "AZDO_SP_TENANT_ID=tenant\n"
+        "AZDO_SP_CLIENT_ID=client\n"
+        "AZDO_SP_CLIENT_SECRET=secret\n"
+        "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n",
+        encoding="utf-8",
+    )
+    result = _run_cli(tmp_path, "")
+    assert result.returncode == 2
+    assert "user-token" in result.stdout or "OBO" in result.stdout
