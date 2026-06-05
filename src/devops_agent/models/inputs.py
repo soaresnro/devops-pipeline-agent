@@ -11,6 +11,7 @@ class AppType(StrEnum):
     API = "api"
     WORKER = "worker"
     WEB = "web"
+    CRONJOB = "cronjob"
 
 
 class RepoCoordinates(BaseModel):

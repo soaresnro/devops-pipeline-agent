@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from devops_agent.config import Settings, get_settings
-from devops_agent.models import Phase, SessionState
+from devops_agent.models import AppType, Phase, SessionState
 from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.orchestrator import state_machine as sm
 
@@ -76,7 +76,7 @@ def _run_phase(session: SessionState, settings: object) -> bool:
         return True
 
     if session.phase == Phase.ASK_APP_TYPE:
-        raw = _ask("(api / worker / web) >")
+        raw = _ask(f"({' / '.join(t.value for t in AppType)}) >")
         step = sm.handle_app_type(session, raw)
         if step.error:
             _print_error(step.message_to_user)
