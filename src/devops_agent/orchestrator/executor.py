@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devops_agent.config import Settings
-from devops_agent.models import ExecutionResult, Language, Phase, SessionState, ToolResult
+from devops_agent.models import AppType, ExecutionResult, Language, Phase, SessionState, ToolResult
 from devops_agent.tools.auth import acquire_app_token, acquire_user_obo_token
 from devops_agent.tools.azdo import AzdoClient
 from devops_agent.tools.detection import LanguageDetection, detect_language
@@ -148,12 +148,14 @@ def prepare_dry_run(
     devops_repo = _parse_devops_repo(settings)
     acr_name = _derive_acr_name(settings)
 
+    language = session.language or Language.DOTNET
     return dry_run(
         app_name=session.app_name,
         app_type=session.app_type,
-        language=session.language or Language.DOTNET,
+        language=language,
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         pipeline_pass_language=settings.pipeline_pass_language,
+        pipeline_template_path=_pipeline_template_path(settings, session.app_type, language),
         namespace=session.namespace,
         branch=session.branch,
         acr_name=acr_name,
@@ -217,6 +219,21 @@ def detect_language_step(
 def _derive_acr_name(settings: Settings) -> str:
     """Convencao: {org}acr em lowercase. Podera virar setting dedicado."""
     return f"{settings.azdo_org.lower()}acr"
+
+
+def _pipeline_template_path(settings: Settings, app_type: AppType, language: Language) -> str:
+    """Escolhe o template de pipeline pela linguagem; web reaproveita o de node.
+
+    Cai no devops_template_default quando a linguagem nao tem caminho proprio.
+    """
+    key = Language.NODE if app_type == AppType.WEB else language
+    by_language = {
+        Language.DOTNET: settings.devops_template_dotnet,
+        Language.NODE: settings.devops_template_node,
+        Language.PYTHON: settings.devops_template_python,
+        Language.GO: settings.devops_template_go,
+    }
+    return by_language.get(key) or settings.devops_template_default
 
 
 def _timestamp_slug() -> str:

@@ -112,6 +112,9 @@ _TYPE_DEFAULTS: dict[AppType, TypeDefaults] = {
 # Agendamento cron padrao para cronjob quando o usuario nao informa um (de hora em hora).
 DEFAULT_CRON_SCHEDULE = "0 * * * *"
 
+# Caminho default do template de pipeline no repo devops-templates.
+DEFAULT_PIPELINE_TEMPLATE_PATH = "pipelines/k8s-app.yaml"
+
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
 
@@ -158,6 +161,7 @@ def _build_template_context(
     devops_templates_tag: str,
     schedule: str,
     pipeline_pass_language: bool,
+    pipeline_template_path: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
@@ -166,6 +170,7 @@ def _build_template_context(
         "language": language.value,
         "schedule": schedule,
         "pipeline_pass_language": pipeline_pass_language,
+        "pipeline_template_path": pipeline_template_path,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -238,6 +243,7 @@ def build_bundle(
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
+    pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     ctx = _build_template_context(
@@ -251,6 +257,7 @@ def build_bundle(
         devops_templates_tag=devops_templates_tag,
         schedule=schedule,
         pipeline_pass_language=pipeline_pass_language,
+        pipeline_template_path=pipeline_template_path,
     )
 
     app_files = [
@@ -277,6 +284,7 @@ def dry_run(
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
+    pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -293,6 +301,7 @@ def dry_run(
             devops_templates_tag=devops_templates_tag,
             schedule=schedule,
             pipeline_pass_language=pipeline_pass_language,
+            pipeline_template_path=pipeline_template_path,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(

@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (210 testes)
+.venv\Scripts\python -m pytest          # toda a suite (215 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -63,7 +63,7 @@ src/devops_agent/
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                210 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                215 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -71,6 +71,7 @@ tests/                210 testes: unit + integration (git contra remote local) +
 - **LLM nao gera artefatos.** Toda saida em arquivo vem de templates Jinja2 deterministicos. O LLM apenas decide *quando* chamar `propose_scaffold`/`execute_scaffold` com inputs ja validados. Nao adicione tools que pecam ao LLM para escrever YAML/Dockerfile.
 - **azure-pipelines.yaml referencia template do DevOps por TAG**, nunca branch. Se mudar para branch, pipelines em producao vao quebrar quando alguem commitar no template.
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
+- **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.
 - **Tool calls retornam dict** `{ok, data, error, error_code}` — nunca exception ao LLM. Se um handler lancar excecao, o dispatcher captura e converte. Mantenha esse contrato.
