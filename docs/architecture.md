@@ -311,10 +311,15 @@ POC completa em [`src/devops_agent/`](../src/devops_agent/). **101 testes passan
 - `llm/agent.py` — agent loop com tool budget
 - `cli.py` — comandos `scaffold` (deterministico) e `chat` (LLM)
 
+**Implementado (modo de auth `sp`):**
+- Service Principal via Entra ID (`AZDO_AUTH_MODE=sp`): app token por `ClientSecretCredential` (secret no Key Vault) ou `DefaultAzureCredential` (Managed Identity da Container App = o "WIF" do ADR; em AKS seria workload identity). Token usado para clone/push/PR (header `Authorization: Bearer`).
+- `check_user_permission` via OBO antes de qualquer clone: troca a assercao do usuario (`OnBehalfOfCredential`, usando o client secret no MVP) por um token Azure DevOps e avalia `Contribute` no repo (permissionevaluationbatch). Fail-closed: recusa sem usar o SP.
+- Auditoria "on behalf of" no corpo do PR.
+
 **Pendente para producao:**
 - Hosting em Azure Container Apps
-- Service Principal real + Workload Identity Federation (atualmente usa PAT)
-- `check_user_permission` via OBO (token do usuario humano)
+- Login MSAL interativo no CLI para obter a assercao do usuario localmente (hoje injetada via `--user-token`/`AZDO_AGENT_USER_ASSERTION`)
+- OBO sem client secret (via assertion da Managed Identity)
 - Teams bot / SPA front-end
 - App Insights / OpenTelemetry
 - Redis para sessao persistente

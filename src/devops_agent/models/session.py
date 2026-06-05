@@ -45,6 +45,9 @@ class SessionState(BaseModel):
     phase: Phase = Phase.GREET
 
     requested_by: str | None = None
+    # Token de assercao do usuario para o fluxo OBO (modo sp). Sensivel: nunca logar.
+    user_assertion: str | None = Field(default=None, repr=False, exclude=True)
+    user_oid: str | None = None
     repo_url: str | None = None
     repo_coords: RepoCoordinates | None = None
     branch: str | None = None
