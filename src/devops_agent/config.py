@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
     devops_templates_reviewers: str = "devops-team"
+    # Template de pipeline (no devops-templates) por linguagem detectada. Quando uma
+    # linguagem nao tem caminho proprio, usa devops_template_default. web reaproveita
+    # o de node (build Node -> nginx).
+    devops_template_default: str = "pipelines/k8s-app.yaml"
+    devops_template_dotnet: str | None = None
+    devops_template_node: str | None = None
+    devops_template_python: str | None = None
+    devops_template_go: str | None = None
     # Emite `language` em extends.parameters da pipeline. So ative apos a tag do
     # devops-templates (DEVOPS_TEMPLATES_TAG) declarar esse parametro, senao a
     # compilacao da pipeline gerada falha com "Unexpected parameter 'language'".

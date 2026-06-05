@@ -115,6 +115,22 @@ class TestRenderedContent:
         assert parsed["extends"]["parameters"]["appType"] == "api"
         assert parsed["extends"]["parameters"]["exposeExternal"] is False
 
+    def test_pipeline_usa_template_default(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@devops-templates"
+
+    def test_pipeline_usa_template_informado(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            pipeline_template_path="pipelines/go-k8s-app.yaml",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["extends"]["template"] == "pipelines/go-k8s-app.yaml@devops-templates"
+
     def test_pipeline_nao_passa_language_por_padrao(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
