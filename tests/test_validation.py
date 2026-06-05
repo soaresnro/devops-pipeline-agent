@@ -67,6 +67,26 @@ class TestValidateRepoUrl:
         )
         assert r.ok
 
+    def test_aceita_url_legada_visualstudio_com(self) -> None:
+        # org no subdominio; projeto pode vir url-encoded
+        r = validate_repo_url(
+            "https://epharmapbm.visualstudio.com/Squad%20Engenharia/_git/epharma-api-auth",
+            allowed_org="epharmapbm",
+        )
+        assert r.ok, r.error
+        assert r.data is not None
+        assert r.data.organization == "epharmapbm"
+        assert r.data.project == "Squad%20Engenharia"
+        assert r.data.repository == "epharma-api-auth"
+
+    def test_visualstudio_com_respeita_allowlist(self) -> None:
+        r = validate_repo_url(
+            "https://outraorg.visualstudio.com/Proj/_git/repo",
+            allowed_org="epharmapbm",
+        )
+        assert not r.ok
+        assert r.error_code == "repo.org_not_allowed"
+
     def test_rejeita_http(self) -> None:
         r = validate_repo_url(
             "http://dev.azure.com/contoso/Platform/_git/payments-api",
