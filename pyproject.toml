@@ -9,7 +9,7 @@ description = "Agente conversacional self-service para criacao de pipelines CI/C
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Plataforma DevOps" }]
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.4",
