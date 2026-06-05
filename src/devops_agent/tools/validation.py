@@ -72,6 +72,10 @@ _CRON_MACROS: frozenset[str] = frozenset(
 )
 _CRON_FIELD_RE = re.compile(r"^[\d*/,\-]+$")
 
+# Versao .NET: banda com feature (8.0.x) ou patch pinado (8.0.100). Default 8.0.x.
+_DOTNET_VERSION_RE = re.compile(r"^(6|7|8|9)\.0\.(x|\d{1,3})$")
+_DEFAULT_DOTNET_VERSION = "8.0.x"
+
 
 def validate_repo_url(
     url: str,
@@ -207,6 +211,21 @@ def validate_cron_schedule(value: str) -> ToolResult[str]:
             code="cron.invalid_format",
         )
     return ToolResult.success(cron)
+
+
+def validate_dotnet_version(value: str) -> ToolResult[str]:
+    """Valida a versao .NET (ex.: 8.0.x ou 8.0.100). Vazio -> default 8.0.x."""
+    if not value or not value.strip():
+        return ToolResult.success(_DEFAULT_DOTNET_VERSION)
+
+    version = value.strip().lower().removeprefix("v")
+    if not _DOTNET_VERSION_RE.match(version):
+        return ToolResult.failure(
+            "Versao .NET invalida. Use o formato <major>.0.x (ex.: 8.0.x) ou um patch "
+            "(ex.: 8.0.100). Suportados: 6, 7, 8, 9.",
+            code="dotnet_version.invalid",
+        )
+    return ToolResult.success(version)
 
 
 def validate_branch_name(branch: str) -> ToolResult[str]:

@@ -181,6 +181,45 @@ class TestSetLanguageTool:
         assert session.language == Language.PYTHON
         assert session.phase == Phase.VALIDATE
 
+    def test_dotnet_vai_para_ask_dotnet_version(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.phase = Phase.ASK_LANGUAGE
+        call = ToolCall(id="t1", name="set_language", arguments={"language": "dotnet"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.language == Language.DOTNET
+        assert session.phase == Phase.ASK_DOTNET_VERSION
+
+
+class TestSetDotnetVersionTool:
+    def test_define_versao_e_vai_para_validate(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.language = Language.DOTNET
+        session.phase = Phase.ASK_DOTNET_VERSION
+        call = ToolCall(id="t1", name="set_dotnet_version", arguments={"version": "8.0.x"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.dotnet_version == "8.0.x"
+        assert session.phase == Phase.VALIDATE
+
+    def test_recusa_se_nao_for_dotnet(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.language = Language.GO
+        call = ToolCall(id="t1", name="set_dotnet_version", arguments={"version": "8.0.x"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "dotnet_version.not_dotnet"
+
+    def test_versao_invalida_falha(self, settings: Settings, session: SessionState) -> None:
+        session.language = Language.DOTNET
+        call = ToolCall(id="t1", name="set_dotnet_version", arguments={"version": "10.0.x"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "dotnet_version.invalid"
+
     def test_aceita_alias(self, settings: Settings, session: SessionState) -> None:
         session.phase = Phase.ASK_LANGUAGE
         call = ToolCall(id="t1", name="set_language", arguments={"language": "golang"})

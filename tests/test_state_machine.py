@@ -56,6 +56,13 @@ class TestHandleLanguage:
         assert not step.error
         assert session.language == Language.GO
 
+    def test_dotnet_vai_para_ask_dotnet_version(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_LANGUAGE
+        step = sm.handle_language(session, "dotnet")
+        assert not step.error
+        assert session.language == Language.DOTNET
+        assert session.phase == Phase.ASK_DOTNET_VERSION
+
     def test_invalida_permanece_em_ask_language(self, session: SessionState) -> None:
         session.phase = Phase.ASK_LANGUAGE
         step = sm.handle_language(session, "cobol")
@@ -87,3 +94,26 @@ class TestHandleSchedule:
         assert step.error
         assert step.next_phase == Phase.ASK_SCHEDULE
         assert session.schedule is None
+
+
+class TestHandleDotnetVersion:
+    def test_versao_valida_vai_para_validate(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_VERSION
+        step = sm.handle_dotnet_version(session, "9.0.x")
+        assert not step.error
+        assert session.dotnet_version == "9.0.x"
+        assert session.phase == Phase.VALIDATE
+
+    def test_vazio_mantem_default_e_avanca(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_VERSION
+        step = sm.handle_dotnet_version(session, "  ")
+        assert not step.error
+        assert session.dotnet_version is None  # default aplicado no scaffold
+        assert session.phase == Phase.VALIDATE
+
+    def test_invalida_permanece_em_ask_dotnet_version(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_VERSION
+        step = sm.handle_dotnet_version(session, "10.1.2")
+        assert step.error
+        assert step.next_phase == Phase.ASK_DOTNET_VERSION
+        assert session.dotnet_version is None

@@ -115,6 +115,9 @@ DEFAULT_CRON_SCHEDULE = "0 * * * *"
 # Caminho default do template de pipeline no repo devops-templates.
 DEFAULT_PIPELINE_TEMPLATE_PATH = "pipelines/k8s-app.yaml"
 
+# Versao default do .NET quando o usuario nao informa.
+DEFAULT_DOTNET_VERSION = "8.0.x"
+
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
 
@@ -162,6 +165,7 @@ def _build_template_context(
     schedule: str,
     pipeline_pass_language: bool,
     pipeline_template_path: str,
+    dotnet_version: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
@@ -171,6 +175,7 @@ def _build_template_context(
         "schedule": schedule,
         "pipeline_pass_language": pipeline_pass_language,
         "pipeline_template_path": pipeline_template_path,
+        "dotnet_version": dotnet_version,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -199,8 +204,16 @@ def render_dockerfile(
     return _render_template(f"dockerfile/{language.value}.Dockerfile.j2", context)
 
 
-def render_pipeline_yaml(context: dict[str, object]) -> str:
-    return _render_template("pipeline/azure-pipelines.yaml.j2", context)
+def _pipeline_stack(app_type: AppType, language: Language) -> str:
+    """Stack que define o template de pipeline local. So dotnet tem contrato real;
+    os demais (e web) usam o template generico _default ate termos os reais."""
+    if app_type != AppType.WEB and language == Language.DOTNET:
+        return "dotnet"
+    return "_default"
+
+
+def render_pipeline_yaml(context: dict[str, object], *, stack: str = "_default") -> str:
+    return _render_template(f"pipeline/{stack}/azure-pipelines.yaml.j2", context)
 
 
 def render_helm_chart(
@@ -244,6 +257,7 @@ def build_bundle(
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
+    dotnet_version: str = DEFAULT_DOTNET_VERSION,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     ctx = _build_template_context(
@@ -258,13 +272,14 @@ def build_bundle(
         schedule=schedule,
         pipeline_pass_language=pipeline_pass_language,
         pipeline_template_path=pipeline_template_path,
+        dotnet_version=dotnet_version,
     )
 
     app_files = [
         ScaffoldedFile(path="Dockerfile", content=render_dockerfile(app_type, language, ctx)),
         ScaffoldedFile(
             path="azure-pipelines.yaml",
-            content=render_pipeline_yaml(ctx),
+            content=render_pipeline_yaml(ctx, stack=_pipeline_stack(app_type, language)),
         ),
     ]
     helm_files = render_helm_chart(app_type, ctx)
@@ -285,6 +300,7 @@ def dry_run(
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
+    dotnet_version: str = DEFAULT_DOTNET_VERSION,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -302,6 +318,7 @@ def dry_run(
             schedule=schedule,
             pipeline_pass_language=pipeline_pass_language,
             pipeline_template_path=pipeline_template_path,
+            dotnet_version=dotnet_version,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(
