@@ -14,8 +14,9 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from devops_agent.models import ToolResult
 from devops_agent.tools.scaffold import ScaffoldedFile
@@ -35,14 +36,22 @@ class GitError(Exception):
 class GitAuth:
     """Credencial para chamadas git over HTTPS contra Azure DevOps.
 
-    Para PAT: username pode ser vazio ou 'pat'; password = PAT.
-    Para OAuth/Bearer: username vazio; password = token.
+    Para PAT: username 'pat', password = PAT, scheme 'basic'.
+    Para token Entra ID (SP/OBO): scheme 'bearer', password = token (header
+    `Authorization: Bearer <token>`, que o git over HTTPS do Azure DevOps aceita).
     """
 
     username: str
     password: str
+    scheme: Literal["basic", "bearer"] = field(default="basic")
 
-    def to_basic_header(self) -> str:
+    @classmethod
+    def bearer(cls, token: str) -> "GitAuth":
+        return cls(username="", password=token, scheme="bearer")
+
+    def to_header(self) -> str:
+        if self.scheme == "bearer":
+            return f"Bearer {self.password}"
         raw = f"{self.username}:{self.password}".encode()
         return "Basic " + base64.b64encode(raw).decode()
 
@@ -102,11 +111,11 @@ def _run_git(
     except FileNotFoundError as exc:
         raise GitError("git nao esta instalado ou nao esta no PATH.") from exc
     except subprocess.TimeoutExpired as exc:
-        raise GitError(f"git timeout apos {timeout}s: {' '.join(args)}") from exc
+        raise GitError(f"git timeout apos {timeout}s: {_redact_args(args)}") from exc
 
     if completed.returncode != 0:
         raise GitError(
-            f"git falhou (exit={completed.returncode}): {' '.join(args)}\n"
+            f"git falhou (exit={completed.returncode}): {_redact_args(args)}\n"
             f"stderr: {completed.stderr.strip()}"
         )
     return completed.stdout
@@ -116,7 +125,18 @@ def _build_auth_args(auth: GitAuth | None) -> list[str]:
     """Injeta header de Authorization via -c http.extraHeader."""
     if auth is None:
         return []
-    return ["-c", f"http.extraHeader=Authorization: {auth.to_basic_header()}"]
+    return ["-c", f"http.extraHeader=Authorization: {auth.to_header()}"]
+
+
+def _redact_args(args: list[str]) -> str:
+    """Junta args para log/erro, mascarando qualquer header de Authorization."""
+    redacted: list[str] = []
+    for a in args:
+        if a.startswith("http.extraHeader=Authorization"):
+            redacted.append("http.extraHeader=Authorization: <redacted>")
+        else:
+            redacted.append(a)
+    return " ".join(redacted)
 
 
 def clone_shallow(

@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 
 from devops_agent.tools.git_ops import (
+    GitAuth,
+    _build_auth_args,
+    _redact_args,
     clone_shallow,
     create_branch_and_commit,
     list_existing_paths,
@@ -19,6 +22,22 @@ from devops_agent.tools.git_ops import (
     write_files,
 )
 from devops_agent.tools.scaffold import ScaffoldedFile
+
+
+class TestGitAuth:
+    def test_pat_usa_basic(self) -> None:
+        header = GitAuth(username="pat", password="segredo").to_header()
+        assert header.startswith("Basic ")
+
+    def test_bearer_usa_bearer_com_token_cru(self) -> None:
+        header = GitAuth.bearer("tok-123").to_header()
+        assert header == "Bearer tok-123"
+
+    def test_redact_mascara_authorization(self) -> None:
+        args = _build_auth_args(GitAuth.bearer("super-secreto"))
+        redacted = _redact_args(args)
+        assert "super-secreto" not in redacted
+        assert "<redacted>" in redacted
 
 
 def _git(cwd: Path, *args: str) -> str:

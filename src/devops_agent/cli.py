@@ -142,20 +142,21 @@ def _run_phase(session: SessionState, settings: object) -> bool:
 
     if session.phase == Phase.EXECUTE:
         _print_agent("Executando: clonando repos, escrevendo arquivos, abrindo PRs...")
-        result = exec_mod.execute(session, settings)  # type: ignore[arg-type]
-        if not result.ok or result.data is None:
-            _print_error(result.error or "Falha no execute.")
+        exec_result = exec_mod.execute(session, settings)  # type: ignore[arg-type]
+        if not exec_result.ok or exec_result.data is None:
+            _print_error(exec_result.error or "Falha no execute.")
             session.phase = Phase.ERROR
             return False
+        data = exec_result.data
         msg = "Pronto!\n"
-        if result.data.app_pr_url:
-            msg += f"PR do repo da aplicacao: {result.data.app_pr_url}\n"
-        elif result.data.app_branch:
-            msg += f"Branch enviada (PR nao aberto - configure PAT): {result.data.app_branch}\n"
-        if result.data.helm_pr_url:
-            msg += f"PR do repo devops-templates: {result.data.helm_pr_url}\n"
-        elif result.data.helm_branch:
-            msg += f"Branch enviada (PR nao aberto - configure PAT): {result.data.helm_branch}\n"
+        if data.app_pr_url:
+            msg += f"PR do repo da aplicacao: {data.app_pr_url}\n"
+        elif data.app_branch:
+            msg += f"Branch enviada (PR nao aberto - configure credencial): {data.app_branch}\n"
+        if data.helm_pr_url:
+            msg += f"PR do repo devops-templates: {data.helm_pr_url}\n"
+        elif data.helm_branch:
+            msg += f"Branch enviada (PR nao aberto - configure credencial): {data.helm_branch}\n"
         _print_agent(msg)
         session.phase = Phase.DONE
         return False
@@ -169,6 +170,17 @@ def scaffold(
         "",
         "--requested-by",
         help="Identificacao do usuario humano (email/oid) para auditoria.",
+    ),
+    user_token: str = typer.Option(
+        "",
+        "--user-token",
+        envvar="AZDO_AGENT_USER_ASSERTION",
+        help="Token de assercao do usuario (JWT) para o fluxo OBO no modo de auth 'sp'.",
+    ),
+    user_oid: str = typer.Option(
+        "",
+        "--user-oid",
+        help="Object ID (oid) do usuario humano, para auditoria.",
     ),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
@@ -184,7 +196,18 @@ def scaffold(
         )
         raise typer.Exit(code=2) from exc
 
-    session = SessionState(requested_by=requested_by or getpass.getuser())
+    if settings.azdo_auth_mode == "sp" and not user_token:
+        _print_error(
+            "Modo de auth 'sp' exige o token do usuario para o check de permissao (OBO).\n"
+            "Passe --user-token <jwt> ou defina AZDO_AGENT_USER_ASSERTION."
+        )
+        raise typer.Exit(code=2)
+
+    session = SessionState(
+        requested_by=requested_by or getpass.getuser(),
+        user_assertion=user_token or None,
+        user_oid=user_oid or None,
+    )
     console.print(f"[dim]session={session.session_id}[/dim]")
 
     try:
@@ -208,6 +231,17 @@ def chat(
         "--requested-by",
         help="Identificacao do usuario humano (email/oid) para auditoria.",
     ),
+    user_token: str = typer.Option(
+        "",
+        "--user-token",
+        envvar="AZDO_AGENT_USER_ASSERTION",
+        help="Token de assercao do usuario (JWT) para o fluxo OBO no modo de auth 'sp'.",
+    ),
+    user_oid: str = typer.Option(
+        "",
+        "--user-oid",
+        help="Object ID (oid) do usuario humano, para auditoria.",
+    ),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
     """Sessao conversacional com o LLM (Azure OpenAI)."""
@@ -218,6 +252,13 @@ def chat(
     except Exception as exc:  # noqa: BLE001
         _print_error(f"Configuracao invalida: {exc}")
         raise typer.Exit(code=2) from exc
+
+    if settings.azdo_auth_mode == "sp" and not user_token:
+        _print_error(
+            "Modo de auth 'sp' exige o token do usuario para o check de permissao (OBO).\n"
+            "Passe --user-token <jwt> ou defina AZDO_AGENT_USER_ASSERTION."
+        )
+        raise typer.Exit(code=2)
 
     if not settings.llm_enabled:
         _print_error(
@@ -241,7 +282,11 @@ def chat(
         api_version=settings.azure_openai_api_version,
     )
 
-    session = SessionState(requested_by=requested_by or getpass.getuser())
+    session = SessionState(
+        requested_by=requested_by or getpass.getuser(),
+        user_assertion=user_token or None,
+        user_oid=user_oid or None,
+    )
     console.print(f"[dim]session={session.session_id}[/dim]")
 
     agent = Agent(session=session, settings=settings, llm=llm)
