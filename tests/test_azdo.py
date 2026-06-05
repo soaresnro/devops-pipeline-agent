@@ -86,6 +86,52 @@ class TestGetBranch:
         assert r.error_code == "azdo.branch_not_found"
 
 
+class TestListRootItems:
+    @respx.mock
+    def test_lista_arquivos_filtrando_pastas(self, client: AzdoClient) -> None:
+        respx.get(
+            "https://dev.azure.com/contoso/Platform/_apis/git/repositories/payments-api/items"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "count": 4,
+                    "value": [
+                        {"path": "/", "isFolder": True},
+                        {"path": "/src", "isFolder": True},
+                        {"path": "/go.mod", "isFolder": False},
+                        {"path": "/src/main.go", "isFolder": False},
+                    ],
+                },
+            )
+        )
+        r = client.list_root_items("Platform", "payments-api", "main")
+        assert r.ok
+        assert r.data is not None
+        assert "go.mod" in r.data
+        assert "src/main.go" in r.data
+        # pastas nao entram
+        assert "src" not in r.data
+
+    @respx.mock
+    def test_404_mapeia_items_not_found(self, client: AzdoClient) -> None:
+        respx.get(
+            "https://dev.azure.com/contoso/Platform/_apis/git/repositories/payments-api/items"
+        ).mock(return_value=httpx.Response(404))
+        r = client.list_root_items("Platform", "payments-api", "ghost")
+        assert not r.ok
+        assert r.error_code == "azdo.items_not_found"
+
+    @respx.mock
+    def test_403_mapeia_items_forbidden(self, client: AzdoClient) -> None:
+        respx.get(
+            "https://dev.azure.com/contoso/Platform/_apis/git/repositories/payments-api/items"
+        ).mock(return_value=httpx.Response(403))
+        r = client.list_root_items("Platform", "payments-api", "main")
+        assert not r.ok
+        assert r.error_code == "azdo.items_forbidden"
+
+
 class TestCreatePullRequest:
     @respx.mock
     def test_cria_pr_com_sucesso(self, client: AzdoClient) -> None:

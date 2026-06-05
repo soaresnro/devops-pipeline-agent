@@ -7,7 +7,7 @@ import pytest
 from devops_agent.config import Settings
 from devops_agent.llm.client import ToolCall
 from devops_agent.llm.dispatcher import dispatch
-from devops_agent.models import AppType, Phase, SessionState
+from devops_agent.models import AppType, Language, Phase, SessionState
 
 
 @pytest.fixture
@@ -84,12 +84,78 @@ class TestValidateNamespaceTool:
 
 
 class TestValidateAppTypeTool:
-    def test_aceita_api(self, settings: Settings, session: SessionState) -> None:
+    def test_aceita_api_vai_para_detect_language(
+        self, settings: Settings, session: SessionState
+    ) -> None:
         call = ToolCall(id="t1", name="validate_app_type", arguments={"value": "api"})
         out = dispatch(call, session, settings)
         assert out["ok"] is True
         assert session.app_type == AppType.API
+        assert session.phase == Phase.DETECT_LANGUAGE
+
+    def test_web_pula_deteccao_e_vai_para_validate(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        call = ToolCall(id="t1", name="validate_app_type", arguments={"value": "web"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.app_type == AppType.WEB
         assert session.phase == Phase.VALIDATE
+
+
+class TestDetectLanguageTool:
+    def _seed_repo(self, session: SessionState) -> None:
+        from devops_agent.models.inputs import RepoCoordinates
+
+        session.repo_coords = RepoCoordinates(
+            organization="contoso", project="Platform", repository="payments-api"
+        )
+        session.branch = "main"
+        session.app_type = AppType.API
+        session.phase = Phase.DETECT_LANGUAGE
+
+    def test_prereq_faltando_falha(self, settings: Settings, session: SessionState) -> None:
+        call = ToolCall(id="t1", name="detect_language", arguments={})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "detect.prereq_missing"
+
+    def test_sem_pat_retorna_inconclusivo_e_vai_para_ask(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        # settings sem PAT -> detect_language_step e best-effort inconclusivo
+        self._seed_repo(session)
+        call = ToolCall(id="t1", name="detect_language", arguments={})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert out["data"]["is_conclusive"] is False
+        assert session.phase == Phase.ASK_LANGUAGE
+
+
+class TestSetLanguageTool:
+    def test_define_linguagem_e_vai_para_validate(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.phase = Phase.ASK_LANGUAGE
+        call = ToolCall(id="t1", name="set_language", arguments={"language": "python"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.language == Language.PYTHON
+        assert session.phase == Phase.VALIDATE
+
+    def test_aceita_alias(self, settings: Settings, session: SessionState) -> None:
+        session.phase = Phase.ASK_LANGUAGE
+        call = ToolCall(id="t1", name="set_language", arguments={"language": "golang"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.language == Language.GO
+
+    def test_guard_de_fase(self, settings: Settings, session: SessionState) -> None:
+        session.phase = Phase.ASK_REPO
+        call = ToolCall(id="t1", name="set_language", arguments={"language": "go"})
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "language.wrong_phase"
 
 
 class TestProposeScaffold:

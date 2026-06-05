@@ -9,8 +9,28 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from devops_agent.models import AppType, ToolResult
+from devops_agent.models import AppType, Language, ToolResult
 from devops_agent.models.inputs import RepoCoordinates
+
+# Aliases comuns que o usuario pode digitar para cada linguagem.
+_LANGUAGE_ALIASES: dict[str, Language] = {
+    "dotnet": Language.DOTNET,
+    ".net": Language.DOTNET,
+    "net": Language.DOTNET,
+    "csharp": Language.DOTNET,
+    "c#": Language.DOTNET,
+    "node": Language.NODE,
+    "nodejs": Language.NODE,
+    "node.js": Language.NODE,
+    "js": Language.NODE,
+    "javascript": Language.NODE,
+    "typescript": Language.NODE,
+    "ts": Language.NODE,
+    "python": Language.PYTHON,
+    "py": Language.PYTHON,
+    "go": Language.GO,
+    "golang": Language.GO,
+}
 
 # RFC 1123 label: letras minusculas, digitos, hifens; nao comeca/termina com hifen.
 _NAMESPACE_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -136,6 +156,26 @@ def validate_app_type(value: str) -> ToolResult[AppType]:
             f"Tipo '{value}' nao reconhecido. Use um de: {accepted}.",
             code="type.invalid",
         )
+
+
+def validate_language(value: str) -> ToolResult[Language]:
+    """Normaliza e valida a linguagem, aceitando aliases comuns."""
+    if not value or not isinstance(value, str):
+        return ToolResult.failure("Linguagem nao informada.", code="language.empty")
+
+    normalized = value.strip().lower()
+    lang = _LANGUAGE_ALIASES.get(normalized)
+    if lang is None:
+        try:
+            lang = Language(normalized)
+        except ValueError:
+            accepted = ", ".join(t.value for t in Language)
+            return ToolResult.failure(
+                f"Linguagem '{value}' nao reconhecida. Use uma de: {accepted}.",
+                code="language.invalid",
+            )
+
+    return ToolResult.success(lang)
 
 
 def validate_branch_name(branch: str) -> ToolResult[str]:

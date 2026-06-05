@@ -17,12 +17,13 @@ from pydantic import BaseModel, ValidationError
 
 from devops_agent.config import Settings
 from devops_agent.llm.client import ToolCall
-from devops_agent.models import AppType, Phase, SessionState
+from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_k8s_namespace,
+    validate_language,
     validate_repo_url,
 )
 
@@ -46,6 +47,10 @@ class _NamespaceArgs(BaseModel):
 
 class _AppTypeArgs(BaseModel):
     value: str
+
+
+class _LanguageArgs(BaseModel):
+    language: str
 
 
 class _ExecuteArgs(BaseModel):
@@ -153,8 +158,60 @@ def _handle_validate_app_type(
         return _fail(r.error or "tipo invalido", r.error_code)
 
     session.app_type = r.data
-    session.phase = Phase.VALIDATE
+    # web nao detecta linguagem; demais tipos passam por detect_language antes do scaffold.
+    session.phase = Phase.VALIDATE if r.data == AppType.WEB else Phase.DETECT_LANGUAGE
     return _ok({"app_type": r.data.value})
+
+
+def _handle_detect_language(
+    args: dict[str, Any], session: SessionState, settings: Settings
+) -> dict[str, Any]:
+    if not session.repo_coords or not session.branch:
+        return _fail(
+            "detecte a linguagem apenas apos validar repo e branch.",
+            "detect.prereq_missing",
+        )
+
+    result = exec_mod.detect_language_step(session, settings)
+    det = result.data
+    if det is None:
+        return _fail(result.error or "falha na deteccao de linguagem", result.error_code)
+
+    return _ok(
+        {
+            "is_conclusive": det.is_conclusive,
+            "language": det.language.value if det.language else None,
+            "candidates": [c.value for c in det.candidates],
+            "next": (
+                "chame propose_scaffold"
+                if det.is_conclusive
+                else "pergunte a linguagem ao usuario e chame set_language"
+            ),
+        }
+    )
+
+
+def _handle_set_language(
+    args: dict[str, Any], session: SessionState, settings: Settings
+) -> dict[str, Any]:
+    try:
+        parsed = _LanguageArgs.model_validate(args)
+    except ValidationError as exc:
+        return _fail(f"argumentos invalidos: {exc.errors()[0]['msg']}", "args.invalid")
+
+    if session.phase not in (Phase.DETECT_LANGUAGE, Phase.ASK_LANGUAGE, Phase.VALIDATE):
+        return _fail(
+            "set_language so pode ser chamada apos detect_language.",
+            "language.wrong_phase",
+        )
+
+    r = validate_language(parsed.language)
+    if not r.ok or r.data is None:
+        return _fail(r.error or "linguagem invalida", r.error_code)
+
+    session.language = r.data
+    session.phase = Phase.VALIDATE
+    return _ok({"language": r.data.value})
 
 
 def _handle_propose_scaffold(
@@ -232,6 +289,8 @@ _HANDLERS: dict[str, Handler] = {
     "validate_branch": _handle_validate_branch,
     "validate_namespace": _handle_validate_namespace,
     "validate_app_type": _handle_validate_app_type,
+    "detect_language": _handle_detect_language,
+    "set_language": _handle_set_language,
     "propose_scaffold": _handle_propose_scaffold,
     "execute_scaffold": _handle_execute_scaffold,
     "abort_session": _handle_abort_session,

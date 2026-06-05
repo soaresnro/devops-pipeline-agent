@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_agent.models import AppType
+from devops_agent.models import AppType, Language
 
 _ACCEPTED_APP_TYPES = ", ".join(t.value for t in AppType)
+_ACCEPTED_LANGUAGES = ", ".join(t.value for t in Language)
 
 
 # Helper: monta o envelope que a API espera.
@@ -105,13 +106,48 @@ def tools_for_agent() -> list[dict[str, Any]]:
             },
         ),
         _tool(
+            name="detect_language",
+            description=(
+                "Detecta a linguagem da aplicacao inspecionando os arquivos do repositorio "
+                "(sem clone). Chame DEPOIS de validar repo, branch e tipo, e ANTES de "
+                "propose_scaffold. Nao se aplica a tipo 'web'. Retorna 'is_conclusive' e "
+                "'candidates'. Se is_conclusive=true a linguagem ja foi definida; siga para "
+                "propose_scaffold. Se false, pergunte ao usuario qual a linguagem (cite os "
+                "'candidates' se houver) e chame set_language com a resposta."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _tool(
+            name="set_language",
+            description=(
+                "Define a linguagem da aplicacao a partir da resposta do usuario, quando "
+                "detect_language nao foi conclusivo. Chame somente apos perguntar ao usuario."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "language": {
+                        "type": "string",
+                        "description": f"Linguagem informada pelo usuario ({_ACCEPTED_LANGUAGES}).",
+                    }
+                },
+                "required": ["language"],
+                "additionalProperties": False,
+            },
+        ),
+        _tool(
             name="propose_scaffold",
             description=(
                 "Renderiza em memoria todos os arquivos que serao criados (Dockerfile, "
                 "azure-pipelines.yaml, Helm chart) e detecta colisoes contra arquivos "
                 "que ja existem no repo da aplicacao. Chame esta tool DEPOIS de ter validado "
-                "as 4 respostas (repo, branch, namespace, tipo). Retorna uma lista resumida dos "
-                "arquivos planejados, para voce mostrar ao usuario antes de pedir confirmacao."
+                "as 4 respostas (repo, branch, namespace, tipo) e definido a linguagem "
+                "(via detect_language/set_language, exceto para tipo 'web'). Retorna uma lista "
+                "resumida dos arquivos planejados, para voce mostrar ao usuario antes de confirmar."
             ),
             parameters={
                 "type": "object",

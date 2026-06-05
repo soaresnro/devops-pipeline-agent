@@ -10,8 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devops_agent.config import Settings
-from devops_agent.models import ExecutionResult, SessionState, ToolResult
+from devops_agent.models import ExecutionResult, Language, Phase, SessionState, ToolResult
 from devops_agent.tools.azdo import AzdoClient
+from devops_agent.tools.detection import LanguageDetection, detect_language
 from devops_agent.tools.git_ops import (
     GitAuth,
     clone_shallow,
@@ -86,12 +87,53 @@ def prepare_dry_run(
     return dry_run(
         app_name=session.app_name,
         app_type=session.app_type,
+        language=session.language or Language.DOTNET,
         namespace=session.namespace,
         branch=session.branch,
         acr_name=acr_name,
         devops_templates_repo_name=f"{devops_repo.project}/{devops_repo.repository}",
         devops_templates_tag=devops_repo.tag,
     )
+
+
+def detect_language_step(
+    session: SessionState,
+    settings: Settings,
+) -> ToolResult[LanguageDetection]:
+    """Detecta a linguagem do repo (via Items API, sem clone) e transiciona a fase.
+
+    Best-effort: ausencia de PAT, falta de pre-requisitos ou qualquer falha de API
+    sao tratadas como inconclusivo -> ASK_LANGUAGE (nunca derruba a sessao). Sempre
+    sai da fase DETECT_LANGUAGE para evitar loop no driver.
+    """
+
+    def _inconclusive(candidates: list[Language] | None = None) -> ToolResult[LanguageDetection]:
+        session.language_candidates = candidates or []
+        session.phase = Phase.ASK_LANGUAGE
+        return ToolResult.success(
+            LanguageDetection(language=None, candidates=candidates or [], is_conclusive=False)
+        )
+
+    if not session.repo_coords or not session.branch or not settings.azdo_pat:
+        return _inconclusive()
+
+    with AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat) as client:
+        items = client.list_root_items(
+            session.repo_coords.project,
+            session.repo_coords.repository,
+            session.branch,
+        )
+    if not items.ok or items.data is None:
+        return _inconclusive()
+
+    detection = detect_language(items.data).data
+    assert detection is not None  # detect_language sempre retorna sucesso
+    if detection.is_conclusive and detection.language is not None:
+        session.language = detection.language
+        session.phase = Phase.VALIDATE
+        return ToolResult.success(detection)
+
+    return _inconclusive(detection.candidates)
 
 
 def _derive_acr_name(settings: Settings) -> str:

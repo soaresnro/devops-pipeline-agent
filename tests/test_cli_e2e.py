@@ -27,11 +27,12 @@ def _run_cli(env_file_dir: Path, stdin_text: str) -> subprocess.CompletedProcess
 def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     """Roda as 4 perguntas, valida, gera dry_run e aborta no CONFIRM."""
     # Setup .env minimo
+    # Sem AZDO_PAT: a deteccao de linguagem nao faz chamada de rede e cai em ASK_LANGUAGE,
+    # mantendo o e2e offline e deterministico.
     env_file = tmp_path / ".env"
     env_file.write_text(
         "AZDO_ORG=contoso\n"
         "AZDO_AUTH_MODE=pat\n"
-        "AZDO_PAT=dummy\n"
         "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n"
         "DEVOPS_TEMPLATES_TAG=v1\n"
         "DEVOPS_TEMPLATES_REVIEWERS=devops-team\n",
@@ -44,6 +45,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "main",
             "payments-prod",
             "api",
+            "dotnet",  # responde a pergunta de linguagem (deteccao inconclusiva sem PAT)
             "nao",
             "",
         ]
@@ -56,7 +58,8 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     assert "Qual o link do repositorio" in stdout
     assert "Em qual branch" in stdout
     assert "Qual o namespace" in stdout
-    assert "API, Worker ou Web" in stdout
+    assert "API, Worker, Web ou CronJob" in stdout
+    assert "linguagem" in stdout.lower()
     assert "Vou criar os seguintes arquivos" in stdout
     assert "Dockerfile" in stdout
     assert "azure-pipelines.yaml" in stdout
@@ -101,6 +104,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "main",
             "payments-prod",
             "api",
+            "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
             "nao",
             "",
         ]

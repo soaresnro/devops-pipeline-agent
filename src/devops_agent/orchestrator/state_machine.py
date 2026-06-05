@@ -15,6 +15,7 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_k8s_namespace,
+    validate_language,
     validate_repo_url,
 )
 
@@ -33,7 +34,8 @@ _QUESTIONS = {
     Phase.ASK_REPO: "Qual o link do repositorio onde voce precisa da pipeline?",
     Phase.ASK_BRANCH: "Em qual branch devo adicionar os arquivos da pipeline?",
     Phase.ASK_NAMESPACE: "Qual o namespace Kubernetes onde a aplicacao deve ficar?",
-    Phase.ASK_APP_TYPE: "Sua aplicacao e API, Worker ou Web?",
+    Phase.ASK_APP_TYPE: "Sua aplicacao e API, Worker, Web ou CronJob?",
+    Phase.ASK_LANGUAGE: "Nao consegui detectar a linguagem. Qual a linguagem da aplicacao?",
 }
 
 
@@ -114,10 +116,39 @@ def handle_app_type(session: SessionState, user_input: str) -> StepResult:
         )
 
     session.app_type = result.data
+
+    # web e sempre uma SPA estatica (build Node -> nginx); nao detectamos linguagem.
+    if result.data == AppType.WEB:
+        session.phase = Phase.VALIDATE
+        return StepResult(
+            next_phase=Phase.VALIDATE,
+            message_to_user=f"Tipo: {result.data.value}\nValidando inputs...",
+            awaits_input=False,
+        )
+
+    session.phase = Phase.DETECT_LANGUAGE
+    return StepResult(
+        next_phase=Phase.DETECT_LANGUAGE,
+        message_to_user=f"Tipo: {result.data.value}\nDetectando a linguagem...",
+        awaits_input=False,
+    )
+
+
+def handle_language(session: SessionState, user_input: str) -> StepResult:
+    result = validate_language(user_input)
+    if not result.ok or result.data is None:
+        # Permanece em ASK_LANGUAGE (nao volta a DETECT_LANGUAGE para nao re-bater na API).
+        return StepResult(
+            next_phase=Phase.ASK_LANGUAGE,
+            message_to_user=result.error or "Linguagem invalida.",
+            error=result.error,
+        )
+
+    session.language = result.data
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
-        message_to_user=f"Tipo: {result.data.value}\nValidando inputs...",
+        message_to_user=f"Linguagem: {result.data.value}\nValidando inputs...",
         awaits_input=False,
     )
 

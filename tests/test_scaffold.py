@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from devops_agent.models import AppType
+from devops_agent.models import AppType, Language
 from devops_agent.tools.scaffold import build_bundle, dry_run
 
 # Cada tipo gera um unico template de workload no chart; cronjob usa CronJob, o resto Deployment.
@@ -205,6 +205,59 @@ class TestRenderedContent:
         base_ctx: dict[str, object],
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "EXPOSE" not in df.content
+        assert "HEALTHCHECK" not in df.content
+
+
+class TestLanguageDockerfile:
+    @pytest.mark.parametrize(
+        ("language", "marker"),
+        [
+            (Language.DOTNET, "dotnet publish"),
+            (Language.NODE, "npm ci"),
+            (Language.PYTHON, "pip install"),
+            (Language.GO, "go build"),
+        ],
+    )
+    def test_api_usa_template_da_linguagem(
+        self, language: Language, marker: str, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.API, language=language, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert marker in df.content
+        # API sempre expoe porta, independente da linguagem
+        assert "EXPOSE 8080" in df.content
+
+    @pytest.mark.parametrize("language", list(Language))
+    def test_web_ignora_linguagem_e_usa_nginx(
+        self, language: Language, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.WEB, language=language, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "nginx" in df.content
+        assert "dotnet" not in df.content
+        assert "go build" not in df.content
+
+    def test_dotnet_troca_aspnet_por_runtime_conforme_tipo(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        api = build_bundle(app_type=AppType.API, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        worker = build_bundle(app_type=AppType.WORKER, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        api_df = next(f for f in api.app_repo_files if f.path == "Dockerfile").content
+        worker_df = next(f for f in worker.app_repo_files if f.path == "Dockerfile").content
+        assert "dotnet/aspnet" in api_df
+        assert "dotnet/runtime" in worker_df
+        assert "dotnet/aspnet" not in worker_df
+
+    def test_node_worker_sem_expose(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, language=Language.NODE, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "EXPOSE" not in df.content
+        assert "node" in df.content
+
+    def test_go_cronjob_sem_expose_nem_healthcheck(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, language=Language.GO, **base_ctx)  # type: ignore[arg-type]
         df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
         assert "EXPOSE" not in df.content
         assert "HEALTHCHECK" not in df.content
