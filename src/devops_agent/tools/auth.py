@@ -17,6 +17,7 @@ from azure.core.exceptions import ClientAuthenticationError
 from azure.identity import (
     ClientSecretCredential,
     DefaultAzureCredential,
+    DeviceCodeCredential,
     OnBehalfOfCredential,
 )
 
@@ -48,6 +49,33 @@ def acquire_app_token(settings: Settings) -> ToolResult[str]:
         return ToolResult.failure(
             f"Falha adquirindo token do Service Principal: {exc}",
             code="auth.app_token",
+        )
+    return ToolResult.success(token.token)
+
+
+def acquire_user_assertion_interactive(settings: Settings) -> ToolResult[str]:
+    """Login interativo (device code) que obtem a assercao do usuario para o OBO.
+
+    O usuario autentica seguindo o codigo/URL exibidos; o token resultante (com
+    audience do app do agente) e usado como user_assertion na troca OBO.
+    """
+    if not settings.azdo_login_client_id:
+        return ToolResult.failure(
+            "AZDO_LOGIN_CLIENT_ID nao configurado - login interativo indisponivel.",
+            code="auth.login_not_configured",
+        )
+
+    scope = settings.azdo_agent_api_scope or f"{settings.azdo_sp_client_id}/.default"
+    try:
+        credential = DeviceCodeCredential(
+            tenant_id=settings.azdo_sp_tenant_id or "",
+            client_id=settings.azdo_login_client_id,
+        )
+        token = credential.get_token(scope)
+    except (ClientAuthenticationError, ValueError) as exc:
+        return ToolResult.failure(
+            f"Falha no login interativo: {exc}",
+            code="auth.interactive_login",
         )
     return ToolResult.success(token.token)
 

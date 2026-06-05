@@ -15,14 +15,16 @@ class _FakeToken:
 
 
 class _FakeCred:
-    """Credencial fake que devolve um token fixo; registra como foi construida."""
+    """Credencial fake que devolve um token fixo; registra construcao e scope."""
 
     last_kwargs: dict[str, object] = {}
+    last_scope: str | None = None
 
     def __init__(self, **kwargs: object) -> None:
         type(self).last_kwargs = kwargs
 
     def get_token(self, scope: str) -> _FakeToken:
+        type(self).last_scope = scope
         return _FakeToken("fake-token")
 
 
@@ -83,6 +85,40 @@ class TestAcquireAppToken:
         r = auth.acquire_app_token(sp_settings)
         assert not r.ok
         assert r.error_code == "auth.app_token"
+
+
+class TestAcquireUserAssertionInteractive:
+    def _sp_with_login(self) -> Settings:
+        return Settings(  # type: ignore[call-arg]
+            azdo_org="contoso",
+            azdo_auth_mode="sp",
+            azdo_sp_tenant_id="tenant",
+            azdo_sp_client_id="conf-app",
+            azdo_sp_client_secret="secret",
+            azdo_login_client_id="public-cli",
+            devops_templates_repo_url="https://dev.azure.com/contoso/Platform/_git/devops-templates",
+        )
+
+    def test_sucesso_usa_scope_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(auth, "DeviceCodeCredential", _FakeCred)
+        r = auth.acquire_user_assertion_interactive(self._sp_with_login())
+        assert r.ok
+        assert r.data == "fake-token"
+        assert _FakeCred.last_kwargs["client_id"] == "public-cli"
+        # scope default derivado do app confidencial
+        assert _FakeCred.last_scope == "conf-app/.default"
+
+    def test_sem_login_client_falha(self, sp_settings: Settings) -> None:
+        # sp_settings nao tem azdo_login_client_id
+        r = auth.acquire_user_assertion_interactive(sp_settings)
+        assert not r.ok
+        assert r.error_code == "auth.login_not_configured"
+
+    def test_falha_credencial(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(auth, "DeviceCodeCredential", _FailingCred)
+        r = auth.acquire_user_assertion_interactive(self._sp_with_login())
+        assert not r.ok
+        assert r.error_code == "auth.interactive_login"
 
 
 class TestAcquireUserOboToken:

@@ -20,6 +20,7 @@ from devops_agent.config import Settings, get_settings
 from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.orchestrator import state_machine as sm
+from devops_agent.tools import auth
 
 app = typer.Typer(
     add_completion=False,
@@ -39,6 +40,32 @@ def _print_error(message: str) -> None:
 
 def _ask(prompt: str) -> str:
     return Prompt.ask(f"[bold yellow]voce[/bold yellow] {prompt}").strip()
+
+
+def _resolve_user_assertion(settings: Settings, user_token: str) -> str | None:
+    """Resolve a assercao do usuario para o modo sp (precedencia: token > login).
+
+    Token explicito (--user-token/env) sempre vence. Senao, no modo sp, faz login
+    interativo (device code) se AZDO_LOGIN_CLIENT_ID estiver configurado. Caso
+    contrario, encerra com orientacao. Fora do modo sp, retorna None.
+    """
+    if user_token:
+        return user_token
+    if settings.azdo_auth_mode != "sp":
+        return None
+    if settings.azdo_login_client_id:
+        _print_agent("Autenticacao necessaria - siga o codigo/URL exibidos para fazer login.")
+        result = auth.acquire_user_assertion_interactive(settings)
+        if not result.ok or result.data is None:
+            _print_error(result.error or "Falha no login interativo.")
+            raise typer.Exit(code=2)
+        return result.data
+    _print_error(
+        "Modo de auth 'sp' exige o token do usuario para o check de permissao (OBO).\n"
+        "Passe --user-token <jwt>, defina AZDO_AGENT_USER_ASSERTION, ou configure "
+        "AZDO_LOGIN_CLIENT_ID para login interativo."
+    )
+    raise typer.Exit(code=2)
 
 
 def _run_phase(session: SessionState, settings: object) -> bool:
@@ -206,16 +233,11 @@ def scaffold(
         )
         raise typer.Exit(code=2) from exc
 
-    if settings.azdo_auth_mode == "sp" and not user_token:
-        _print_error(
-            "Modo de auth 'sp' exige o token do usuario para o check de permissao (OBO).\n"
-            "Passe --user-token <jwt> ou defina AZDO_AGENT_USER_ASSERTION."
-        )
-        raise typer.Exit(code=2)
+    user_assertion = _resolve_user_assertion(settings, user_token)
 
     session = SessionState(
         requested_by=requested_by or getpass.getuser(),
-        user_assertion=user_token or None,
+        user_assertion=user_assertion,
         user_oid=user_oid or None,
     )
     console.print(f"[dim]session={session.session_id}[/dim]")
@@ -263,13 +285,6 @@ def chat(
         _print_error(f"Configuracao invalida: {exc}")
         raise typer.Exit(code=2) from exc
 
-    if settings.azdo_auth_mode == "sp" and not user_token:
-        _print_error(
-            "Modo de auth 'sp' exige o token do usuario para o check de permissao (OBO).\n"
-            "Passe --user-token <jwt> ou defina AZDO_AGENT_USER_ASSERTION."
-        )
-        raise typer.Exit(code=2)
-
     if not settings.llm_enabled:
         _print_error(
             "AZURE_OPENAI_ENDPOINT e AZURE_OPENAI_API_KEY nao configurados.\n"
@@ -292,9 +307,11 @@ def chat(
         api_version=settings.azure_openai_api_version,
     )
 
+    user_assertion = _resolve_user_assertion(settings, user_token)
+
     session = SessionState(
         requested_by=requested_by or getpass.getuser(),
-        user_assertion=user_token or None,
+        user_assertion=user_assertion,
         user_oid=user_oid or None,
     )
     console.print(f"[dim]session={session.session_id}[/dim]")

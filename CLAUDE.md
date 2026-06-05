@@ -20,7 +20,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (206 testes)
+.venv\Scripts\python -m pytest          # toda a suite (209 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -61,7 +61,7 @@ src/devops_agent/
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                206 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                209 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -75,7 +75,7 @@ tests/                206 testes: unit + integration (git contra remote local) +
 - **Inputs do usuario sao envoltos em `<user_input>...</user_input>`** antes de ir ao LLM (mitiga prompt injection). Ver `llm/system_prompt.py:wrap_user_input`.
 - **State machine fica em `SessionState.phase`**, nao no agent loop. O dispatcher transiciona; o agent loop so roteia mensagens.
 - **LangGraph nao foi adotado.** Agent loop puro com OpenAI tool calling cobre o caso. Revisitar so se precisar de paralelismo ou persistencia multi-turn.
-- **Dois modos de auth** (`AZDO_AUTH_MODE`): `pat` (POC/dev) e `sp` (producao, ADR-001). No modo `sp`, `tools/auth.py` adquire o app token do Service Principal (ClientSecretCredential ou DefaultAzureCredential/Managed Identity) e, ANTES de qualquer clone, `executor._check_user_permission` valida `Contribute` do usuario via OBO (fail-closed: recusa sem usar o SP). O token do usuario (`user_assertion`) e injetado por `--user-token`/`AZDO_AGENT_USER_ASSERTION`. Git over HTTPS usa header Bearer no modo sp (ver `GitAuth.bearer`).
+- **Dois modos de auth** (`AZDO_AUTH_MODE`): `pat` (POC/dev) e `sp` (producao, ADR-001). No modo `sp`, `tools/auth.py` adquire o app token do Service Principal (ClientSecretCredential ou DefaultAzureCredential/Managed Identity) e, ANTES de qualquer clone, `executor._check_user_permission` valida `Contribute` do usuario via OBO (fail-closed: recusa sem usar o SP). O token do usuario (`user_assertion`) vem de `--user-token`/`AZDO_AGENT_USER_ASSERTION` ou, se `AZDO_LOGIN_CLIENT_ID` estiver setado, de login interativo device code (`auth.acquire_user_assertion_interactive`, disparado automaticamente no modo sp sem token). Git over HTTPS usa header Bearer no modo sp (ver `GitAuth.bearer`).
 
 ## Convencoes
 
