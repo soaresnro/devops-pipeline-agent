@@ -5,6 +5,15 @@ retome o contexto essencial apenas clonando o repo. A memoria local do Claude Co
 mora em `~/.claude/` (fora do repo) e **nao** e clonada; este arquivo e a fonte de
 verdade portatil. Mantenha-o atualizado ao concluir/abrir features.
 
+## Definition of Done
+
+Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
+1. Codigo implementado seguindo as convencoes do `CLAUDE.md`.
+2. `pytest` completo verde e `mypy src` limpo.
+3. **`docs/agent-context.md` atualizado** (tabela de PRs/estado, comandos ou
+   preferencias) refletindo a mudanca — este doc e manual e so fica correto se
+   atualizado por commit.
+
 ## Preferencias de trabalho (seguir sempre)
 
 - **PR-only.** Toda mudanca vai para um branch + commit + push do branch + PR.
