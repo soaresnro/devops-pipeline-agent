@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (239 testes)
+.venv\Scripts\python -m pytest          # toda a suite (242 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -63,7 +63,8 @@ src/devops_agent/
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                239 testes: unit + integration (git contra remote local) + e2e CLI
+    environments/     values.yaml.j2 (override fino por ambiente)
+tests/                242 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -72,6 +73,7 @@ tests/                239 testes: unit + integration (git contra remote local) +
 - **azure-pipelines.yaml referencia template do DevOps por TAG**, nunca branch. Se mudar para branch, pipelines em producao vao quebrar quando alguem commitar no template.
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
+- **Layout do Helm alinhado ao template do time:** chart em `helm/apps/<app>` e override por ambiente em `environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
 - **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false); node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, a versao e perguntada no fluxo (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.

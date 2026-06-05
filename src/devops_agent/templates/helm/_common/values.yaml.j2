@@ -4,7 +4,8 @@
 nameOverride: ""
 fullnameOverride: "{{ app_name }}"
 
-namespace: {{ namespace }}
+# O namespace e definido pela pipeline no helm install/upgrade (-n <ns>-<env>),
+# por isso os manifests nao fixam metadata.namespace.
 
 image:
   repository: {{ acr_name }}.azurecr.io/{{ app_name }}

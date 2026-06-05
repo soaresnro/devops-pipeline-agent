@@ -106,7 +106,7 @@ Exemplo: Maria quer pipeline para API `payments-api`.
 4. Pergunta namespace → `validate_namespace`
 5. Pergunta tipo → `validate_app_type`
 6. `propose_scaffold` → renderiza tudo, retorna lista de arquivos + colisoes
-7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml no `payments-api` e charts/payments-api/* no `devops-templates`. Confirma?"
+7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml no `payments-api` e helm/apps/payments-api/* + environments/<env>/payments-api/values.yaml no `devops-templates`. Confirma?"
 8. EXECUTE: clone shallow → escreve arquivos → cria branch `scaffold/api-20260529-1430` → commit/push → abre PR no repo da app e PR no repo devops-templates
 9. Cleanup tmpfs
 10. Agente entrega 2 links de PR no chat
@@ -140,14 +140,20 @@ resources:
       ref: refs/tags/v3   # versionado, nao branch!
 
 extends:
-  template: pipelines/k8s-app.yaml@devops-templates
-  parameters:
-    appName: payments-api
-    appType: api
+  template: pipelines/k8s-app.yaml@devops-templates   # caminho por stack (DEVOPS_TEMPLATE_<LANG>)
+  parameters:                                          # contrato por stack; ex. .NET:
+    applicationName: payments-api
     namespace: payments-prod
-    acrName: contosoacr
-    helmChartPath: charts/payments-api
+    ApplicationType: dotnet
+    projectType: webapi
+    dotNetVersion: 8.0.x
+    deployAppService: false
+    deployAKS: true
+    imageTag: $(Build.BuildId)
 ```
+
+O chart vai para `helm/apps/<app>` e os overrides por ambiente para `environments/<env>/<app>/values.yaml`
+(o template do time faz `helm upgrade -f` por ambiente).
 
 **Decisao critica:** referencia por tag evita que mudanca no template quebre pipelines em producao sem aviso.
 
@@ -200,7 +206,7 @@ extends:
 | Namespace nao reservado (`kube-*`, `default`, `istio-*`) | recusa |
 | `app_type` ∈ {api, worker, web} | recusa |
 | Colisao `Dockerfile`/`azure-pipelines.yaml` no app | mostra diff, 3 opcoes |
-| Colisao `charts/<app>/` no devops-templates | mesma coisa |
+| Colisao `helm/apps/<app>/` no devops-templates | mesma coisa |
 | Templates DevOps acessiveis na tag esperada | health check unhealthy |
 
 ---
