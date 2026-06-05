@@ -110,6 +110,7 @@ class TestValidateAppType:
             ("API", AppType.API),
             (" worker ", AppType.WORKER),
             ("web", AppType.WEB),
+            ("cronjob", AppType.CRONJOB),
         ],
     )
     def test_aceita_tipos_validos(self, entrada: str, esperado: AppType) -> None:

@@ -8,6 +8,14 @@ import yaml
 from devops_agent.models import AppType
 from devops_agent.tools.scaffold import build_bundle, dry_run
 
+# Cada tipo gera um unico template de workload no chart; cronjob usa CronJob, o resto Deployment.
+_WORKLOAD_TEMPLATE: dict[AppType, str] = {
+    AppType.API: "deployment.yaml",
+    AppType.WORKER: "deployment.yaml",
+    AppType.WEB: "deployment.yaml",
+    AppType.CRONJOB: "cronjob.yaml",
+}
+
 
 @pytest.fixture
 def base_ctx() -> dict[str, object]:
@@ -47,7 +55,7 @@ class TestBuildBundle:
         assert f"{chart_root}/values.yaml" in paths
         assert f"{chart_root}/templates/_helpers.tpl" in paths
         assert f"{chart_root}/templates/serviceaccount.yaml" in paths
-        assert f"{chart_root}/templates/deployment.yaml" in paths
+        assert f"{chart_root}/templates/{_WORKLOAD_TEMPLATE[app_type]}" in paths
 
     def test_api_inclui_service_ingress_hpa(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
@@ -71,6 +79,19 @@ class TestBuildBundle:
         paths = set(bundle.all_helm_paths)
         assert f"{chart_root}/templates/service.yaml" in paths
         assert f"{chart_root}/templates/ingress.yaml" in paths
+
+    def test_cronjob_inclui_cronjob_sem_deployment_service_ingress(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        chart_root = "charts/payments-api"
+        paths = set(bundle.all_helm_paths)
+        assert f"{chart_root}/templates/cronjob.yaml" in paths
+        assert f"{chart_root}/templates/deployment.yaml" not in paths
+        assert f"{chart_root}/templates/service.yaml" not in paths
+        assert f"{chart_root}/templates/ingress.yaml" not in paths
+        assert f"{chart_root}/templates/hpa.yaml" not in paths
 
 
 class TestRenderedContent:
@@ -137,6 +158,32 @@ class TestRenderedContent:
         assert parsed["ingress"]["tls"][0]["secretName"] == "payments-api-tls"
         assert parsed["service"]["targetPort"] == 80
 
+    def test_values_yaml_cronjob_tem_schedule_sem_service_nem_autoscaling(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert "service" not in parsed
+        assert "ingress" not in parsed
+        assert "probes" not in parsed
+        assert "autoscaling" not in parsed
+        assert "replicaCount" not in parsed
+        assert parsed["cronjob"]["schedule"] == "0 * * * *"
+        assert parsed["cronjob"]["concurrencyPolicy"] == "Forbid"
+        assert parsed["cronjob"]["restartPolicy"] == "OnFailure"
+
+    def test_cronjob_yaml_e_template_de_cronjob_kubernetes(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        cron = next(f for f in bundle.helm_chart_files if f.path.endswith("cronjob.yaml"))
+        assert "kind: CronJob" in cron.content
+        assert "apiVersion: batch/v1" in cron.content
+        assert ".Values.cronjob.schedule" in cron.content
+
     def test_dockerfile_api_expose_porta_8080(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
@@ -152,6 +199,15 @@ class TestRenderedContent:
         df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
         assert "nginx" in df.content
         assert 'CMD ["nginx", "-g", "daemon off;"]' in df.content
+
+    def test_dockerfile_cronjob_sem_expose_nem_healthcheck(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "EXPOSE" not in df.content
+        assert "HEALTHCHECK" not in df.content
 
 
 class TestDryRun:

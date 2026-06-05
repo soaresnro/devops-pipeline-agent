@@ -17,8 +17,10 @@ serviceAccount:
   create: true
   annotations: {}
   name: ""
+{%- if app_type != 'cronjob' %}
 
 replicaCount: {{ replica_count }}
+{%- endif %}
 
 resources:
   requests:
@@ -89,7 +91,7 @@ probes:
       port: http
     initialDelaySeconds: 5
     periodSeconds: 5
-{%- else %}
+{%- elif app_type == 'worker' %}
 
 probes:
   liveness:
@@ -103,6 +105,7 @@ probes:
     initialDelaySeconds: 10
     periodSeconds: 10
 {%- endif %}
+{%- if app_type != 'cronjob' %}
 
 autoscaling:
 {%- if app_type == 'worker' %}
@@ -114,6 +117,19 @@ autoscaling:
   minReplicas: {{ replica_count }}
   maxReplicas: 10
   targetCPUUtilizationPercentage: 75
+{%- endif %}
+{%- endif %}
+{%- if app_type == 'cronjob' %}
+
+cronjob:
+  schedule: "0 * * * *"  # ATUALIZE com o agendamento real (formato cron)
+  concurrencyPolicy: Forbid
+  restartPolicy: OnFailure
+  backoffLimit: 3
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  suspend: false
 {%- endif %}
 
 env: []
