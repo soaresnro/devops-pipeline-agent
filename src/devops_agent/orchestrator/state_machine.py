@@ -10,11 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from devops_agent.config import Settings
-from devops_agent.models import AppType, Phase, SessionState
+from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -38,6 +39,7 @@ _QUESTIONS = {
     Phase.ASK_APP_TYPE: "Sua aplicacao e API, Worker, Web ou CronJob?",
     Phase.ASK_SCHEDULE: "Qual o agendamento (cron) do CronJob? Ex.: '0 2 * * *' ou @daily.",
     Phase.ASK_LANGUAGE: "Nao consegui detectar a linguagem. Qual a linguagem da aplicacao?",
+    Phase.ASK_DOTNET_VERSION: "Qual a versao do .NET? Ex.: 8.0.x (enter usa o default 8.0.x).",
 }
 
 
@@ -182,10 +184,46 @@ def handle_language(session: SessionState, user_input: str) -> StepResult:
         )
 
     session.language = result.data
+
+    # dotnet precisa da versao antes de prosseguir.
+    if result.data == Language.DOTNET:
+        session.phase = Phase.ASK_DOTNET_VERSION
+        return StepResult(
+            next_phase=Phase.ASK_DOTNET_VERSION,
+            message_to_user=f"Linguagem: {result.data.value}\n" + _QUESTIONS[Phase.ASK_DOTNET_VERSION],
+        )
+
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
         message_to_user=f"Linguagem: {result.data.value}\nValidando inputs...",
+        awaits_input=False,
+    )
+
+
+def handle_dotnet_version(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia mantem o default do scaffold (session.dotnet_version permanece None).
+    if not user_input.strip():
+        session.phase = Phase.VALIDATE
+        return StepResult(
+            next_phase=Phase.VALIDATE,
+            message_to_user="Mantendo a versao padrao do .NET.\nValidando inputs...",
+            awaits_input=False,
+        )
+
+    result = validate_dotnet_version(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_DOTNET_VERSION,
+            message_to_user=result.error or "Versao .NET invalida.",
+            error=result.error,
+        )
+
+    session.dotnet_version = result.data
+    session.phase = Phase.VALIDATE
+    return StepResult(
+        next_phase=Phase.VALIDATE,
+        message_to_user=f"Versao .NET: {result.data}\nValidando inputs...",
         awaits_input=False,
     )
 

@@ -31,7 +31,10 @@ Se o tipo for 'cronjob', pergunte o agendamento (cron) da aplicacao e chame
 @daily). Se o usuario nao quiser definir, pode seguir sem chamar e o padrao sera usado.
 
 Apos validar o tipo (exceto quando for 'web') - e, para cronjob, apos o agendamento -
-chame `detect_language` para inferir a linguagem da aplicacao. Se a deteccao for conclusiva, siga em frente. Se nao for
+chame `detect_language` para inferir a linguagem da aplicacao.
+
+Se a linguagem for 'dotnet', pergunte a versao do .NET (ex.: 8.0.x; enter usa o default
+8.0.x) e chame `set_dotnet_version` antes de seguir. Se a deteccao for conclusiva, siga em frente. Se nao for
 (is_conclusive=false), pergunte ao usuario qual a linguagem - citando os 'candidates'
 se houver - e chame `set_language` com a resposta. Para o tipo 'web' nao detecte nem
 pergunte a linguagem.

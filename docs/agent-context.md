@@ -29,7 +29,15 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **215 testes**, `mypy --strict` limpo. Publicado no GitHub
+MVP/POC completo e verde: **239 testes**, `mypy --strict` limpo.
+
+**Adaptacao a templates reais do time (em andamento):** o bloco `extends.parameters` da pipeline
+e por stack (`templates/pipeline/<stack>/azure-pipelines.yaml.j2`). `dotnet` ja usa o contrato real
+(applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false; versao perguntada
+no fluxo, default 8.0.x); node/python/go/web seguem no `_default` generico ate recebermos os templates
+reais. Proximo passo (PR2): alinhar o layout do Helm ao template (`helm/apps/<app>` +
+`environments/<env>/<app>/values.yaml`, configuravel por `DEVOPS_ENVIRONMENTS`) e remover o
+`metadata.namespace` fixo dos manifests. Publicado no GitHub
 em `https://github.com/soaresnro/devops-pipeline-agent` (licenca MIT).
 
 Backlog escolhido **100% concluido** — cada item virou um PR:

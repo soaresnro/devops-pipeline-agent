@@ -160,6 +160,26 @@ def tools_for_agent() -> list[dict[str, Any]]:
             },
         ),
         _tool(
+            name="set_dotnet_version",
+            description=(
+                "Define a versao do .NET quando a stack for dotnet. Chame apos definir a "
+                "linguagem (dotnet) e antes de propose_scaffold. Aceita o formato <major>.0.x "
+                "(ex.: 8.0.x) ou um patch (ex.: 8.0.100). Se o usuario nao informar, pode "
+                "omitir e o default 8.0.x sera usado."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "version": {
+                        "type": "string",
+                        "description": "Versao do .NET (ex.: 8.0.x, 8.0.100).",
+                    }
+                },
+                "required": ["version"],
+                "additionalProperties": False,
+            },
+        ),
+        _tool(
             name="propose_scaffold",
             description=(
                 "Renderiza em memoria todos os arquivos que serao criados (Dockerfile, "

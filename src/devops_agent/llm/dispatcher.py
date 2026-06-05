@@ -23,6 +23,7 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -56,6 +57,10 @@ class _LanguageArgs(BaseModel):
 
 class _ScheduleArgs(BaseModel):
     schedule: str
+
+
+class _DotNetVersionArgs(BaseModel):
+    version: str
 
 
 class _ExecuteArgs(BaseModel):
@@ -207,16 +212,19 @@ def _handle_detect_language(
     if det is None:
         return _fail(result.error or "falha na deteccao de linguagem", result.error_code)
 
+    if not det.is_conclusive:
+        next_step = "pergunte a linguagem ao usuario e chame set_language"
+    elif det.language == Language.DOTNET:
+        next_step = "pergunte a versao do .NET e chame set_dotnet_version"
+    else:
+        next_step = "chame propose_scaffold"
+
     return _ok(
         {
             "is_conclusive": det.is_conclusive,
             "language": det.language.value if det.language else None,
             "candidates": [c.value for c in det.candidates],
-            "next": (
-                "chame propose_scaffold"
-                if det.is_conclusive
-                else "pergunte a linguagem ao usuario e chame set_language"
-            ),
+            "next": next_step,
         }
     )
 
@@ -240,8 +248,29 @@ def _handle_set_language(
         return _fail(r.error or "linguagem invalida", r.error_code)
 
     session.language = r.data
-    session.phase = Phase.VALIDATE
+    # dotnet exige a versao antes do scaffold; demais seguem direto.
+    session.phase = Phase.ASK_DOTNET_VERSION if r.data == Language.DOTNET else Phase.VALIDATE
     return _ok({"language": r.data.value})
+
+
+def _handle_set_dotnet_version(
+    args: dict[str, Any], session: SessionState, settings: Settings
+) -> dict[str, Any]:
+    try:
+        parsed = _DotNetVersionArgs.model_validate(args)
+    except ValidationError as exc:
+        return _fail(f"argumentos invalidos: {exc.errors()[0]['msg']}", "args.invalid")
+
+    if session.language != Language.DOTNET:
+        return _fail("set_dotnet_version so se aplica a stack dotnet.", "dotnet_version.not_dotnet")
+
+    r = validate_dotnet_version(parsed.version)
+    if not r.ok or r.data is None:
+        return _fail(r.error or "versao invalida", r.error_code)
+
+    session.dotnet_version = r.data
+    session.phase = Phase.VALIDATE
+    return _ok({"dotnet_version": r.data})
 
 
 def _handle_propose_scaffold(
@@ -322,6 +351,7 @@ _HANDLERS: dict[str, Handler] = {
     "set_schedule": _handle_set_schedule,
     "detect_language": _handle_detect_language,
     "set_language": _handle_set_language,
+    "set_dotnet_version": _handle_set_dotnet_version,
     "propose_scaffold": _handle_propose_scaffold,
     "execute_scaffold": _handle_execute_scaffold,
     "abort_session": _handle_abort_session,

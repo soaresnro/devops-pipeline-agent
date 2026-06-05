@@ -25,6 +25,7 @@ from devops_agent.tools.git_ops import (
 )
 from devops_agent.tools.scaffold import (
     DEFAULT_CRON_SCHEDULE,
+    DEFAULT_DOTNET_VERSION,
     DryRunResult,
     ScaffoldBundle,
     build_bundle,
@@ -154,6 +155,7 @@ def prepare_dry_run(
         app_type=session.app_type,
         language=language,
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
+        dotnet_version=session.dotnet_version or DEFAULT_DOTNET_VERSION,
         pipeline_pass_language=settings.pipeline_pass_language,
         pipeline_template_path=_pipeline_template_path(settings, session.app_type, language),
         namespace=session.namespace,
@@ -210,7 +212,12 @@ def detect_language_step(
     assert detection is not None  # detect_language sempre retorna sucesso
     if detection.is_conclusive and detection.language is not None:
         session.language = detection.language
-        session.phase = Phase.VALIDATE
+        # dotnet precisa da versao antes de validar; demais seguem direto.
+        session.phase = (
+            Phase.ASK_DOTNET_VERSION
+            if detection.language == Language.DOTNET
+            else Phase.VALIDATE
+        )
         return ToolResult.success(detection)
 
     return _inconclusive(detection.candidates)
