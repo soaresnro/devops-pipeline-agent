@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
     devops_templates_reviewers: str = "devops-team"
+    # Repo onde os Helm charts sao escritos (PR). Pode ser diferente do repo de
+    # templates; se vazio, usa o proprio DEVOPS_TEMPLATES_REPO_URL.
+    devops_helm_repo_url: str | None = None
+    # Branch alvo do repo do Helm (clone + PR). Ex.: master.
+    devops_helm_repo_branch: str = "main"
     # Template de pipeline (no devops-templates) por linguagem detectada. Quando uma
     # linguagem nao tem caminho proprio, usa devops_template_default. web reaproveita
     # o de node (build Node -> nginx).

@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (244 testes)
+.venv\Scripts\python -m pytest          # toda a suite (247 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -64,7 +64,7 @@ src/devops_agent/
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
     environments/     values.yaml.j2 (override fino por ambiente)
-tests/                244 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                247 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -74,6 +74,7 @@ tests/                244 testes: unit + integration (git contra remote local) +
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
 - **Layout do Helm alinhado ao template do time:** chart em `helm/apps/<app>` e override por ambiente em `environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
+- **O repo do Helm pode ser separado do repo de templates:** `DEVOPS_HELM_REPO_URL` (fallback para `DEVOPS_TEMPLATES_REPO_URL`) e `DEVOPS_HELM_REPO_BRANCH` (default `main`, ex.: `master`) — clone + PR do chart vao para esse repo/branch (`executor._parse_helm_repo`). O repo de templates so e referenciado por tag na pipeline.
 - **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false); node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, a versao e perguntada no fluxo (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.
