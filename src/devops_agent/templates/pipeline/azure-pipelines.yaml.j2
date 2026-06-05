@@ -1,0 +1,31 @@
+# Pipeline gerada automaticamente pelo devops-pipeline-agent
+# App: {{ app_name }} | Tipo: {{ app_type }} | Namespace: {{ namespace }}
+# NAO edite manualmente - este arquivo apenas referencia o template centralizado.
+# Para customizar comportamento, ajuste os parametros abaixo ou values.yaml do Helm chart.
+
+trigger:
+  branches:
+    include:
+      - {{ branch }}
+
+resources:
+  repositories:
+    - repository: devops-templates
+      type: git
+      name: {{ devops_templates_repo_name }}
+      ref: refs/tags/{{ devops_templates_tag }}
+
+extends:
+  template: pipelines/k8s-app.yaml@devops-templates
+  parameters:
+    appName: {{ app_name }}
+    appType: {{ app_type }}
+    namespace: {{ namespace }}
+    acrName: {{ acr_name }}
+    helmChartPath: charts/{{ app_name }}
+    dockerfilePath: Dockerfile
+{%- if app_type == 'web' %}
+    exposeExternal: true
+{%- elif app_type == 'api' %}
+    exposeExternal: false
+{%- endif %}

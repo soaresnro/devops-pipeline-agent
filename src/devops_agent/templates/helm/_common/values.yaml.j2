@@ -1,0 +1,124 @@
+# Values para {{ app_name }} ({{ app_type }})
+# Gerado pelo devops-pipeline-agent. Ajuste conforme necessario.
+
+nameOverride: ""
+fullnameOverride: "{{ app_name }}"
+
+namespace: {{ namespace }}
+
+image:
+  repository: {{ acr_name }}.azurecr.io/{{ app_name }}
+  tag: ""  # injetado pela pipeline (usa BuildId)
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+replicaCount: {{ replica_count }}
+
+resources:
+  requests:
+    cpu: {{ resources_requests_cpu }}
+    memory: {{ resources_requests_memory }}
+  limits:
+    cpu: {{ resources_limits_cpu }}
+    memory: {{ resources_limits_memory }}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+{%- if app_type in ('api', 'web') %}
+
+service:
+  type: ClusterIP
+  port: {{ service_port }}
+  targetPort: {{ container_port }}
+{%- endif %}
+
+{%- if app_type == 'api' %}
+
+ingress:
+  enabled: false  # APIs internas por padrao - habilite se precisar de expose externo
+  className: nginx
+  annotations: {}
+  hosts: []
+  tls: []
+{%- elif app_type == 'web' %}
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: {{ app_name }}.example.com  # ATUALIZE com o host real
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: {{ app_name }}-tls
+      hosts:
+        - {{ app_name }}.example.com
+{%- endif %}
+
+{%- if app_type in ('api', 'web') %}
+
+probes:
+  liveness:
+    httpGet:
+      path: {{ health_path }}
+      port: http
+    initialDelaySeconds: 20
+    periodSeconds: 10
+  readiness:
+    httpGet:
+      path: {{ health_path }}
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+{%- else %}
+
+probes:
+  liveness:
+    exec:
+      command: ["pgrep", "-f", "{{ app_name }}"]
+    initialDelaySeconds: 30
+    periodSeconds: 30
+  readiness:
+    exec:
+      command: ["pgrep", "-f", "{{ app_name }}"]
+    initialDelaySeconds: 10
+    periodSeconds: 10
+{%- endif %}
+
+autoscaling:
+{%- if app_type == 'worker' %}
+  enabled: false  # workers usam KEDA - configurar ScaledObject separadamente
+  minReplicas: 1
+  maxReplicas: 10
+{%- else %}
+  enabled: true
+  minReplicas: {{ replica_count }}
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+{%- endif %}
+
+env: []
+envFrom: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

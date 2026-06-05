@@ -1,0 +1,196 @@
+"""Testes da tool de scaffold - garantem que templates renderizam consistentemente."""
+
+from __future__ import annotations
+
+import pytest
+import yaml
+
+from devops_agent.models import AppType
+from devops_agent.tools.scaffold import build_bundle, dry_run
+
+
+@pytest.fixture
+def base_ctx() -> dict[str, object]:
+    return {
+        "app_name": "payments-api",
+        "namespace": "payments-prod",
+        "branch": "main",
+        "acr_name": "contosoacr",
+        "devops_templates_repo_name": "Platform/devops-templates",
+        "devops_templates_tag": "v3",
+    }
+
+
+class TestBuildBundle:
+    @pytest.mark.parametrize("app_type", list(AppType))
+    def test_sempre_contem_dockerfile_e_pipeline_no_repo_da_app(
+        self,
+        app_type: AppType,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
+        paths = bundle.all_app_paths
+        assert "Dockerfile" in paths
+        assert "azure-pipelines.yaml" in paths
+        assert len(paths) == 2
+
+    @pytest.mark.parametrize("app_type", list(AppType))
+    def test_helm_chart_contem_arquivos_obrigatorios(
+        self,
+        app_type: AppType,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
+        paths = bundle.all_helm_paths
+        chart_root = "charts/payments-api"
+        assert f"{chart_root}/Chart.yaml" in paths
+        assert f"{chart_root}/values.yaml" in paths
+        assert f"{chart_root}/templates/_helpers.tpl" in paths
+        assert f"{chart_root}/templates/serviceaccount.yaml" in paths
+        assert f"{chart_root}/templates/deployment.yaml" in paths
+
+    def test_api_inclui_service_ingress_hpa(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        chart_root = "charts/payments-api"
+        paths = set(bundle.all_helm_paths)
+        assert f"{chart_root}/templates/service.yaml" in paths
+        assert f"{chart_root}/templates/ingress.yaml" in paths
+        assert f"{chart_root}/templates/hpa.yaml" in paths
+
+    def test_worker_nao_inclui_service_nem_ingress(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        chart_root = "charts/payments-api"
+        paths = set(bundle.all_helm_paths)
+        assert f"{chart_root}/templates/service.yaml" not in paths
+        assert f"{chart_root}/templates/ingress.yaml" not in paths
+        assert f"{chart_root}/templates/keda-scaledobject.yaml" in paths
+
+    def test_web_inclui_service_ingress(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
+        chart_root = "charts/payments-api"
+        paths = set(bundle.all_helm_paths)
+        assert f"{chart_root}/templates/service.yaml" in paths
+        assert f"{chart_root}/templates/ingress.yaml" in paths
+
+
+class TestRenderedContent:
+    def test_pipeline_yaml_referencia_template_devops_por_tag(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        assert "refs/tags/v3" in pipeline.content
+        assert "Platform/devops-templates" in pipeline.content
+        assert "appName: payments-api" in pipeline.content
+        assert "appType: api" in pipeline.content
+        assert "namespace: payments-prod" in pipeline.content
+
+    def test_pipeline_yaml_e_yaml_valido(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@devops-templates"
+        assert parsed["extends"]["parameters"]["appType"] == "api"
+        assert parsed["extends"]["parameters"]["exposeExternal"] is False
+
+    def test_chart_yaml_e_yaml_valido(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        chart = next(f for f in bundle.helm_chart_files if f.path.endswith("Chart.yaml"))
+        parsed = yaml.safe_load(chart.content)
+        assert parsed["name"] == "payments-api"
+        assert parsed["apiVersion"] == "v2"
+
+    def test_values_yaml_api_tem_service_e_probes_http(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert parsed["service"]["port"] == 80
+        assert parsed["service"]["targetPort"] == 8080
+        assert parsed["probes"]["liveness"]["httpGet"]["path"] == "/healthz"
+        assert parsed["ingress"]["enabled"] is False
+        assert parsed["autoscaling"]["enabled"] is True
+
+    def test_values_yaml_worker_sem_service_com_probes_exec(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert "service" not in parsed
+        assert "ingress" not in parsed
+        assert "exec" in parsed["probes"]["liveness"]
+        assert parsed["autoscaling"]["enabled"] is False
+
+    def test_values_yaml_web_tem_ingress_habilitado_com_tls(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
+        values = next(f for f in bundle.helm_chart_files if f.path.endswith("values.yaml"))
+        parsed = yaml.safe_load(values.content)
+        assert parsed["ingress"]["enabled"] is True
+        assert parsed["ingress"]["tls"][0]["secretName"] == "payments-api-tls"
+        assert parsed["service"]["targetPort"] == 80
+
+    def test_dockerfile_api_expose_porta_8080(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "EXPOSE 8080" in df.content
+
+    def test_dockerfile_worker_sem_expose(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "EXPOSE" not in df.content
+
+    def test_dockerfile_web_usa_nginx(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile")
+        assert "nginx" in df.content
+        assert 'CMD ["nginx", "-g", "daemon off;"]' in df.content
+
+
+class TestDryRun:
+    def test_sem_colisoes(self, base_ctx: dict[str, object]) -> None:
+        r = dry_run(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        assert r.ok
+        assert r.data is not None
+        assert not r.data.has_collisions
+
+    def test_detecta_colisao_no_repo_da_app(self, base_ctx: dict[str, object]) -> None:
+        r = dry_run(
+            app_type=AppType.API,
+            existing_app_repo_paths={"Dockerfile", "src/main.cs"},
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        assert r.ok
+        assert r.data is not None
+        assert "Dockerfile" in r.data.app_repo_collisions
+        assert r.data.has_collisions
+
+    def test_detecta_colisao_no_repo_helm(self, base_ctx: dict[str, object]) -> None:
+        r = dry_run(
+            app_type=AppType.API,
+            existing_helm_repo_paths={"charts/payments-api/Chart.yaml"},
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        assert r.ok
+        assert r.data is not None
+        assert "charts/payments-api/Chart.yaml" in r.data.helm_repo_collisions
+
+    def test_normalizacao_de_path_evita_falso_negativo(
+        self,
+        base_ctx: dict[str, object],
+    ) -> None:
+        r = dry_run(
+            app_type=AppType.API,
+            existing_app_repo_paths={"./Dockerfile"},
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        assert r.ok
+        assert r.data is not None
+        assert r.data.app_repo_collisions == ["Dockerfile"]
