@@ -94,6 +94,18 @@ _TYPE_DEFAULTS: dict[AppType, TypeDefaults] = {
         limits_cpu="500m",
         limits_memory="512Mi",
     ),
+    # CronJob nao expoe porta nem mantem replicas; campos de rede/replica ficam zerados
+    # e nao sao renderizados no values.yaml (ver condicionais em _common/values.yaml.j2).
+    AppType.CRONJOB: TypeDefaults(
+        container_port=0,
+        service_port=0,
+        health_path="",
+        replica_count=0,
+        requests_cpu="100m",
+        requests_memory="256Mi",
+        limits_cpu="500m",
+        limits_memory="512Mi",
+    ),
 }
 
 

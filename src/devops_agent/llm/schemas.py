@@ -10,6 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_agent.models import AppType
+
+_ACCEPTED_APP_TYPES = ", ".join(t.value for t in AppType)
+
+
 # Helper: monta o envelope que a API espera.
 def _tool(name: str, description: str, parameters: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -85,14 +90,14 @@ def tools_for_agent() -> list[dict[str, Any]]:
             name="validate_app_type",
             description=(
                 "Valida o tipo da aplicacao informado pelo usuario. Os unicos tipos suportados "
-                "no MVP sao: api, worker e web."
+                f"sao: {_ACCEPTED_APP_TYPES}."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "value": {
                         "type": "string",
-                        "description": "Tipo informado pelo usuario (api / worker / web).",
+                        "description": f"Tipo informado pelo usuario ({_ACCEPTED_APP_TYPES}).",
                     }
                 },
                 "required": ["value"],
