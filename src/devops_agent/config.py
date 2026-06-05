@@ -53,15 +53,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_sp_mode(self) -> "Settings":
-        # No modo sp, o Service Principal precisa de tenant/client; o client_secret
-        # e exigido para o fluxo OBO (check_user_permission do usuario humano).
+        # No modo sp, o Service Principal precisa de tenant/client. O client_secret
+        # e opcional: sem ele, o app token e o OBO usam a Managed Identity
+        # (federated identity credential), sem secret no Key Vault.
         if self.azdo_auth_mode == "sp":
             faltando = [
                 nome
                 for nome, valor in (
                     ("AZDO_SP_TENANT_ID", self.azdo_sp_tenant_id),
                     ("AZDO_SP_CLIENT_ID", self.azdo_sp_client_id),
-                    ("AZDO_SP_CLIENT_SECRET", self.azdo_sp_client_secret),
                 )
                 if not valor
             ]
