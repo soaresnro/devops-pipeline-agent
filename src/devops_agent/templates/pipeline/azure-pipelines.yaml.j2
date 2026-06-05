@@ -24,6 +24,9 @@ extends:
     acrName: {{ acr_name }}
     helmChartPath: charts/{{ app_name }}
     dockerfilePath: Dockerfile
+{%- if pipeline_pass_language and app_type != 'web' %}
+    language: {{ language }}
+{%- endif %}
 {%- if app_type == 'web' %}
     exposeExternal: true
 {%- elif app_type == 'api' %}
