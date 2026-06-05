@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,26 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.azure_openai_endpoint and self.azure_openai_api_key)
+
+    @model_validator(mode="after")
+    def _validate_sp_mode(self) -> "Settings":
+        # No modo sp, o Service Principal precisa de tenant/client; o client_secret
+        # e exigido para o fluxo OBO (check_user_permission do usuario humano).
+        if self.azdo_auth_mode == "sp":
+            faltando = [
+                nome
+                for nome, valor in (
+                    ("AZDO_SP_TENANT_ID", self.azdo_sp_tenant_id),
+                    ("AZDO_SP_CLIENT_ID", self.azdo_sp_client_id),
+                    ("AZDO_SP_CLIENT_SECRET", self.azdo_sp_client_secret),
+                )
+                if not valor
+            ]
+            if faltando:
+                raise ValueError(
+                    "Modo de auth 'sp' exige: " + ", ".join(faltando) + "."
+                )
+        return self
 
 
 _settings: Settings | None = None

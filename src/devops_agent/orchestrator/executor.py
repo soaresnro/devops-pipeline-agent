@@ -11,6 +11,7 @@ from pathlib import Path
 
 from devops_agent.config import Settings
 from devops_agent.models import ExecutionResult, Language, Phase, SessionState, ToolResult
+from devops_agent.tools.auth import acquire_app_token, acquire_user_obo_token
 from devops_agent.tools.azdo import AzdoClient
 from devops_agent.tools.detection import LanguageDetection, detect_language
 from devops_agent.tools.git_ops import (
@@ -22,7 +23,7 @@ from devops_agent.tools.git_ops import (
     temp_workspace,
     write_files,
 )
-from devops_agent.tools.scaffold import ScaffoldBundle, build_bundle, dry_run
+from devops_agent.tools.scaffold import DryRunResult, ScaffoldBundle, build_bundle, dry_run
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,67 @@ def _parse_devops_repo(settings: Settings) -> DevOpsTemplatesRepo:
     )
 
 
-def _git_auth_from_settings(settings: Settings) -> GitAuth | None:
-    if settings.azdo_auth_mode == "pat" and settings.azdo_pat:
+def _git_auth_from_settings(settings: Settings, app_token: str | None = None) -> GitAuth | None:
+    if settings.azdo_auth_mode == "sp":
+        return GitAuth.bearer(app_token) if app_token else None
+    if settings.azdo_pat:
         return GitAuth(username="pat", password=settings.azdo_pat)
     return None
+
+
+def _check_user_permission(
+    session: SessionState,
+    settings: Settings,
+    app_token: str,
+) -> ToolResult[None]:
+    """Verifica (fail-closed) que o usuario humano tem Contribute no repo, via OBO.
+
+    Resolve os GUIDs com o app token (leitura de metadados) e avalia a permissao
+    com o token OBO do usuario. Qualquer falha - sem assercao, OBO, API ou
+    permissao negada - recusa sem prosseguir (o SP nunca vira privilege escalation).
+    """
+    assert session.repo_coords is not None
+    if not session.user_assertion:
+        return ToolResult.failure(
+            "Token do usuario ausente - nao e possivel validar a permissao (OBO).",
+            code="execute.missing_user_assertion",
+        )
+
+    with AzdoClient(organization=settings.azdo_org, bearer_token=app_token) as app_client:
+        repo = app_client.get_repo(
+            session.repo_coords.project, session.repo_coords.repository
+        )
+    if not repo.ok or repo.data is None or not repo.data.project_id:
+        return ToolResult.failure(
+            repo.error or "Nao foi possivel resolver o repositorio para o check de permissao.",
+            code=repo.error_code or "execute.repo_resolve",
+        )
+
+    obo = acquire_user_obo_token(settings, session.user_assertion)
+    if not obo.ok or obo.data is None:
+        return ToolResult.failure(obo.error or "Falha OBO.", code=obo.error_code or "auth.obo")
+
+    with AzdoClient(organization=settings.azdo_org, bearer_token=obo.data) as user_client:
+        perm = user_client.check_user_permission(repo.data.project_id, repo.data.id)
+
+    session.record_audit(
+        "permission_checked",
+        repo=session.repo_coords.full_name,
+        oid=session.user_oid,
+        allowed=bool(perm.ok and perm.data),
+    )
+
+    if not perm.ok:
+        return ToolResult.failure(
+            perm.error or "Falha consultando a permissao do usuario.",
+            code=perm.error_code or "execute.permission_query",
+        )
+    if perm.data is not True:
+        return ToolResult.failure(
+            "Usuario nao tem permissao de Contribute neste repositorio.",
+            code="execute.permission_denied",
+        )
+    return ToolResult.success(None)
 
 
 def render_summary(bundle: ScaffoldBundle) -> str:
@@ -76,7 +134,7 @@ def render_summary(bundle: ScaffoldBundle) -> str:
 def prepare_dry_run(
     session: SessionState,
     settings: Settings,
-) -> ToolResult:
+) -> ToolResult[DryRunResult]:
     """Executa dry_run combinando os inputs do usuario com configuracao."""
     if not session.repo_coords or not session.app_type or not session.app_name or not session.branch or not session.namespace:
         return ToolResult.failure("Sessao incompleta para dry_run.", code="session.incomplete")
@@ -165,12 +223,32 @@ def execute(
     assert dry is not None
     bundle = dry.bundle
     devops_repo = _parse_devops_repo(settings)
-    git_auth = _git_auth_from_settings(settings)
 
     assert session.repo_coords is not None
     assert session.app_type is not None
     assert session.app_name is not None
     assert session.branch is not None
+
+    # Modo sp: adquire o token do SP uma vez e valida a permissao do usuario humano
+    # (OBO) ANTES de qualquer clone. Fail-closed: recusa sem usar o SP se reprovar.
+    app_token: str | None = None
+    if settings.azdo_auth_mode == "sp":
+        token_result = acquire_app_token(settings)
+        if not token_result.ok or token_result.data is None:
+            return ToolResult.failure(
+                token_result.error or "Falha adquirindo token do Service Principal.",
+                code=token_result.error_code or "execute.app_token",
+            )
+        app_token = token_result.data
+
+        perm_check = _check_user_permission(session, settings, app_token)
+        if not perm_check.ok:
+            return ToolResult.failure(
+                perm_check.error or "Permissao do usuario negada.",
+                code=perm_check.error_code or "execute.permission_denied",
+            )
+
+    git_auth = _git_auth_from_settings(settings, app_token)
 
     app_branch = f"scaffold/{session.app_type.value}-{_timestamp_slug()}"
     helm_branch = f"scaffold/{session.app_name}-helm-{_timestamp_slug()}"
@@ -178,10 +256,11 @@ def execute(
         f"chore(ci): scaffold pipeline para {session.app_name} ({session.app_type.value}) "
         f"via agent (session={session.session_id})"
     )
+    oid_suffix = f" (oid={session.user_oid})" if session.user_oid else ""
     pr_description = (
         f"Pipeline gerada automaticamente pelo devops-pipeline-agent.\n\n"
-        f"- Session: {session.session_id}\n"
-        f"- Solicitante: {session.requested_by or 'desconhecido'}\n"
+        f"Generated by CI/CD Agent on behalf of: {session.requested_by or 'desconhecido'}"
+        f"{oid_suffix} session={session.session_id}\n\n"
         f"- App: {session.app_name}\n"
         f"- Tipo: {session.app_type.value}\n"
         f"- Namespace: {session.namespace}\n"
@@ -266,13 +345,17 @@ def execute(
 
         execution.helm_branch = helm_branch
 
-    # 3) Abre PRs via Azure DevOps REST API (opcional - se PAT disponivel)
-    if not settings.azdo_pat:
-        logger.warning("AZDO_PAT nao configurado - PRs nao serao abertos automaticamente.")
+    # 3) Abre PRs via Azure DevOps REST API (se houver credencial)
+    if settings.azdo_auth_mode == "sp" and app_token:
+        pr_client = AzdoClient(organization=settings.azdo_org, bearer_token=app_token)
+    elif settings.azdo_pat:
+        pr_client = AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat)
+    else:
+        logger.warning("Sem credencial para abrir PR - branches enviadas sem PR automatico.")
         session.execution = execution
         return ToolResult.success(execution)
 
-    with AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat) as client:
+    with pr_client as client:
         pr_app = client.create_pull_request(
             session.repo_coords.project,
             session.repo_coords.repository,

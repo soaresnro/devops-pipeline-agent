@@ -25,6 +25,7 @@ class TestGetRepo:
                 json={
                     "id": "abc-123",
                     "name": "payments-api",
+                    "project": {"id": "proj-guid-1", "name": "Platform"},
                     "defaultBranch": "refs/heads/main",
                     "webUrl": "https://dev.azure.com/contoso/Platform/_git/payments-api",
                 },
@@ -34,6 +35,7 @@ class TestGetRepo:
         assert r.ok
         assert r.data is not None
         assert r.data.id == "abc-123"
+        assert r.data.project_id == "proj-guid-1"
         assert r.data.default_branch == "refs/heads/main"
 
     @respx.mock
@@ -130,6 +132,56 @@ class TestListRootItems:
         r = client.list_root_items("Platform", "payments-api", "main")
         assert not r.ok
         assert r.error_code == "azdo.items_forbidden"
+
+
+class TestCheckUserPermission:
+    @respx.mock
+    def test_permitido(self, client: AzdoClient) -> None:
+        route = respx.post(
+            "https://dev.azure.com/contoso/_apis/security/permissionevaluationbatch"
+        ).mock(return_value=httpx.Response(200, json={"evaluations": [{"value": True}]}))
+        r = client.check_user_permission("proj-guid", "repo-guid")
+        assert r.ok
+        assert r.data is True
+        assert route.called
+
+    @respx.mock
+    def test_negado(self, client: AzdoClient) -> None:
+        respx.post(
+            "https://dev.azure.com/contoso/_apis/security/permissionevaluationbatch"
+        ).mock(return_value=httpx.Response(200, json={"evaluations": [{"value": False}]}))
+        r = client.check_user_permission("proj-guid", "repo-guid")
+        assert r.ok
+        assert r.data is False
+
+    @respx.mock
+    def test_403_e_falha_nao_negacao(self, client: AzdoClient) -> None:
+        respx.post(
+            "https://dev.azure.com/contoso/_apis/security/permissionevaluationbatch"
+        ).mock(return_value=httpx.Response(403))
+        r = client.check_user_permission("proj-guid", "repo-guid")
+        assert not r.ok
+        assert r.error_code == "azdo.permission_query_forbidden"
+
+    @respx.mock
+    def test_payload_usa_namespace_e_token_corretos(self, client: AzdoClient) -> None:
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json as _json
+
+            captured.update(_json.loads(request.content.decode()))
+            return httpx.Response(200, json={"evaluations": [{"value": True}]})
+
+        respx.post(
+            "https://dev.azure.com/contoso/_apis/security/permissionevaluationbatch"
+        ).mock(side_effect=handler)
+
+        client.check_user_permission("proj-guid", "repo-guid")
+        ev = captured["evaluations"][0]  # type: ignore[index]
+        assert ev["securityNamespaceId"] == "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87"
+        assert ev["token"] == "repoV2/proj-guid/repo-guid"
+        assert ev["permissions"] == 4
 
 
 class TestCreatePullRequest:
