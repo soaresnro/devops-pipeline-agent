@@ -13,13 +13,14 @@ import pytest
 import respx
 
 from devops_agent.config import Settings
-from devops_agent.models import AppType, SessionState, ToolResult
+from devops_agent.models import AppType, Language, Phase, SessionState, ToolResult
 from devops_agent.models.inputs import RepoCoordinates
 from devops_agent.orchestrator import executor as exec_mod
 
 _ORG = "https://dev.azure.com/contoso"
 _PERM_URL = f"{_ORG}/_apis/security/permissionevaluationbatch"
 _REPO_URL = f"{_ORG}/Platform/_apis/git/repositories/payments-api"
+_ITEMS_URL = f"{_ORG}/Platform/_apis/git/repositories/payments-api/items"
 
 
 @pytest.fixture
@@ -177,6 +178,46 @@ class TestSpHappyPath:
         assert r.data.app_pr_url is not None
         # PRs abertos com o token do SP (bearer), nao PAT
         assert seen_auth and all(a == "Bearer app-token" for a in seen_auth)
+
+
+class TestDetectLanguageStepSp:
+    @respx.mock
+    def test_sp_usa_app_token_e_detecta(
+        self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings, confirmed_session: SessionState
+    ) -> None:
+        monkeypatch.setattr(
+            exec_mod, "acquire_app_token", lambda settings: ToolResult.success("app-token")
+        )
+        seen_auth: list[str] = []
+
+        def _items(request: httpx.Request) -> httpx.Response:
+            seen_auth.append(request.headers.get("Authorization", ""))
+            return httpx.Response(
+                200, json={"value": [{"path": "/go.mod", "isFolder": False}]}
+            )
+
+        respx.get(_ITEMS_URL).mock(side_effect=_items)
+
+        r = exec_mod.detect_language_step(confirmed_session, sp_settings)
+        assert r.ok
+        assert confirmed_session.language == Language.GO
+        assert confirmed_session.phase == Phase.VALIDATE
+        # usou o token do SP (bearer), nao PAT
+        assert seen_auth == ["Bearer app-token"]
+
+    def test_sp_sem_app_token_cai_em_ask_language(
+        self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings, confirmed_session: SessionState
+    ) -> None:
+        monkeypatch.setattr(
+            exec_mod,
+            "acquire_app_token",
+            lambda settings: ToolResult.failure("sem credencial", code="auth.app_token"),
+        )
+        r = exec_mod.detect_language_step(confirmed_session, sp_settings)
+        assert r.ok
+        assert r.data is not None
+        assert r.data.is_conclusive is False
+        assert confirmed_session.phase == Phase.ASK_LANGUAGE
 
 
 class TestPatModeInalterado:
