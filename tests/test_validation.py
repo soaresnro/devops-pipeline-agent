@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from devops_agent.models import AppType
+from devops_agent.models import AppType, Language
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_k8s_namespace,
+    validate_language,
     validate_repo_url,
 )
 
@@ -122,6 +123,35 @@ class TestValidateAppType:
     def test_rejeita_tipos_invalidos(self, entrada: str) -> None:
         r = validate_app_type(entrada)
         assert not r.ok
+
+
+class TestValidateLanguage:
+    @pytest.mark.parametrize(
+        ("entrada", "esperado"),
+        [
+            ("dotnet", Language.DOTNET),
+            (".NET", Language.DOTNET),
+            ("C#", Language.DOTNET),
+            ("node", Language.NODE),
+            ("nodejs", Language.NODE),
+            (" JS ", Language.NODE),
+            ("typescript", Language.NODE),
+            ("python", Language.PYTHON),
+            ("py", Language.PYTHON),
+            ("go", Language.GO),
+            ("golang", Language.GO),
+        ],
+    )
+    def test_aceita_linguagens_e_aliases(self, entrada: str, esperado: Language) -> None:
+        r = validate_language(entrada)
+        assert r.ok, r.error
+        assert r.data == esperado
+
+    @pytest.mark.parametrize("entrada", ["", "rust", "cobol", "fortran"])
+    def test_rejeita_linguagens_invalidas(self, entrada: str) -> None:
+        r = validate_language(entrada)
+        assert not r.ok
+        assert r.error_code in {"language.empty", "language.invalid"}
 
 
 class TestValidateBranchName:

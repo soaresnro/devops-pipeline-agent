@@ -1,8 +1,12 @@
 # syntax=docker/dockerfile:1.7
-# Dockerfile gerado para aplicacao tipo API ({{ app_name }})
+# Dockerfile .NET gerado para {{ app_name }} ({{ app_type }})
 # Ajuste a base image e o build conforme a stack real da sua aplicacao.
 
+{% if app_type == 'api' -%}
 ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+{%- else -%}
+ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:8.0-alpine
+{%- endif %}
 ARG BUILD_IMAGE=mcr.microsoft.com/dotnet/sdk:8.0-alpine
 
 FROM ${BUILD_IMAGE} AS build
@@ -17,6 +21,7 @@ COPY --from=build /app .
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
+{% if app_type == 'api' -%}
 ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_RUNNING_IN_CONTAINER=true
 
@@ -24,5 +29,16 @@ EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://localhost:8080/healthz || exit 1
+{%- elif app_type == 'worker' -%}
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+
+# Workers nao expoem porta. Probes sao feitos via comando.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD pgrep -f "{{ app_name }}" > /dev/null || exit 1
+{%- else -%}
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+
+# CronJobs rodam ate concluir e saem; sem porta exposta e sem probe de container.
+{%- endif %}
 
 ENTRYPOINT ["dotnet", "{{ app_name }}.dll"]
