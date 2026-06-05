@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (215 testes)
+.venv\Scripts\python -m pytest          # toda a suite (239 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -57,13 +57,13 @@ src/devops_agent/
     dispatcher.py     Tool calls do LLM → handlers Python tipados
     agent.py          Agent loop conversacional com tool budget
   templates/
-    pipeline/         azure-pipelines.yaml.j2 (extends template DevOps por tag)
+    pipeline/         azure-pipelines.yaml.j2 por stack: dotnet/ (contrato real) e _default/ (generico)
     dockerfile/       dotnet/node/python/go Dockerfile.j2 (por linguagem, condicional por tipo) + web (nginx)
     helm/_common/     Chart.yaml, values.yaml, _helpers.tpl, serviceaccount
     helm/api/         deployment + service + ingress + hpa
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
-tests/                215 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                239 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -72,6 +72,7 @@ tests/                215 testes: unit + integration (git contra remote local) +
 - **azure-pipelines.yaml referencia template do DevOps por TAG**, nunca branch. Se mudar para branch, pipelines em producao vao quebrar quando alguem commitar no template.
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
+- **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false); node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, a versao e perguntada no fluxo (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.
 - **Tool calls retornam dict** `{ok, data, error, error_code}` — nunca exception ao LLM. Se um handler lancar excecao, o dispatcher captura e converte. Mantenha esse contrato.

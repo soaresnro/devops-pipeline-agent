@@ -145,6 +145,16 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_DOTNET_VERSION:
+        _print_agent(sm.question_for(Phase.ASK_DOTNET_VERSION))
+        raw = _ask("(enter para 8.0.x) >")
+        step = sm.handle_dotnet_version(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.VALIDATE:
         result = exec_mod.prepare_dry_run(session, settings)  # type: ignore[arg-type]
         if not result.ok or result.data is None:

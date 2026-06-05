@@ -1,0 +1,28 @@
+# Pipeline gerada automaticamente pelo devops-pipeline-agent
+# App: {{ app_name }} | Tipo: {{ app_type }} | Stack: .NET {{ dotnet_version }} | Namespace: {{ namespace }}
+# NAO edite manualmente - este arquivo apenas referencia o template centralizado.
+# Para customizar comportamento, ajuste os parametros abaixo ou os values do Helm chart.
+
+trigger:
+  branches:
+    include:
+      - {{ branch }}
+
+resources:
+  repositories:
+    - repository: devops-templates
+      type: git
+      name: {{ devops_templates_repo_name }}
+      ref: refs/tags/{{ devops_templates_tag }}
+
+extends:
+  template: {{ pipeline_template_path }}@devops-templates
+  parameters:
+    applicationName: {{ app_name }}
+    namespace: {{ namespace }}
+    ApplicationType: dotnet
+    projectType: webapi
+    dotNetVersion: {{ dotnet_version }}
+    deployAppService: false
+    deployAKS: true
+    imageTag: $(Build.BuildId)

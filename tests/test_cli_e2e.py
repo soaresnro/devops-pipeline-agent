@@ -46,6 +46,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "payments-prod",
             "api",
             "dotnet",  # responde a pergunta de linguagem (deteccao inconclusiva sem PAT)
+            "",  # versao .NET: enter mantem o default 8.0.x
             "nao",
             "",
         ]
@@ -105,6 +106,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "payments-prod",
             "api",
             "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
+            "",  # versao .NET: enter mantem o default
             "nao",
             "",
         ]

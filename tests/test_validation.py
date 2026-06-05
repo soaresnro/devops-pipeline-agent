@@ -9,10 +9,36 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
 )
+
+
+class TestValidateDotnetVersion:
+    @pytest.mark.parametrize(
+        ("entrada", "esperado"),
+        [
+            ("", "8.0.x"),
+            ("   ", "8.0.x"),
+            ("8.0.x", "8.0.x"),
+            ("6.0.x", "6.0.x"),
+            ("9.0.x", "9.0.x"),
+            ("v8.0.x", "8.0.x"),
+            ("8.0.100", "8.0.100"),
+        ],
+    )
+    def test_aceita_versoes_validas(self, entrada: str, esperado: str) -> None:
+        r = validate_dotnet_version(entrada)
+        assert r.ok, r.error
+        assert r.data == esperado
+
+    @pytest.mark.parametrize("entrada", ["10.0.x", "8.1.x", "abc", "8"])
+    def test_rejeita_versoes_invalidas(self, entrada: str) -> None:
+        r = validate_dotnet_version(entrada)
+        assert not r.ok
+        assert r.error_code == "dotnet_version.invalid"
 
 
 class TestValidateRepoUrl:
