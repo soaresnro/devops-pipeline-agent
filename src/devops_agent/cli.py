@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from devops_agent.config import Settings, get_settings
-from devops_agent.models import AppType, Phase, SessionState
+from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.orchestrator import state_machine as sm
 
@@ -78,6 +78,30 @@ def _run_phase(session: SessionState, settings: object) -> bool:
     if session.phase == Phase.ASK_APP_TYPE:
         raw = _ask(f"({' / '.join(t.value for t in AppType)}) >")
         step = sm.handle_app_type(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.DETECT_LANGUAGE:
+        # Fase transitoria: detecta via API (sem input) e segue para VALIDATE ou ASK_LANGUAGE.
+        detection = exec_mod.detect_language_step(session, settings).data  # type: ignore[arg-type]
+        if detection is not None and detection.is_conclusive and detection.language is not None:
+            _print_agent(f"Linguagem detectada: {detection.language.value}")
+        return True
+
+    if session.phase == Phase.ASK_LANGUAGE:
+        if session.language_candidates:
+            _print_agent(
+                "Encontrei marcadores de mais de uma linguagem: "
+                + ", ".join(c.value for c in session.language_candidates)
+                + ". Qual devo usar?"
+            )
+        else:
+            _print_agent(sm.question_for(Phase.ASK_LANGUAGE))
+        raw = _ask(f"({' / '.join(lang.value for lang in Language)}) >")
+        step = sm.handle_language(session, raw)
         if step.error:
             _print_error(step.message_to_user)
         else:

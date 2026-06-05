@@ -14,6 +14,13 @@ class AppType(StrEnum):
     CRONJOB = "cronjob"
 
 
+class Language(StrEnum):
+    DOTNET = "dotnet"
+    NODE = "node"
+    PYTHON = "python"
+    GO = "go"
+
+
 class RepoCoordinates(BaseModel):
     """Coordenadas normalizadas de um repositorio Azure DevOps."""
 

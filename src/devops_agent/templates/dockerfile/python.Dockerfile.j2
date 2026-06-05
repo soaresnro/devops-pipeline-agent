@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+# Dockerfile Python gerado para {{ app_name }} ({{ app_type }})
+# Ajuste a base image, o build e o comando de inicio conforme a stack real.
+
+ARG RUNTIME_IMAGE=python:3.12-slim
+
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+
+RUN useradd --create-home --uid 1000 app
+USER app
+
+{% if app_type == 'api' -%}
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')" || exit 1
+
+# Ajuste para o entrypoint real (ex.: gunicorn, modulo da aplicacao).
+CMD ["uvicorn", "{{ app_name }}.main:app", "--host", "0.0.0.0", "--port", "8080"]
+{%- elif app_type == 'worker' -%}
+# Workers nao expoem porta. python:slim nao traz pgrep; instale procps e
+# descomente o HEALTHCHECK abaixo se precisar de probe por processo.
+# HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+#   CMD pgrep -f python > /dev/null || exit 1
+
+# Ajuste para o entrypoint real do worker.
+CMD ["python", "-m", "{{ app_name }}"]
+{%- else -%}
+# CronJobs rodam ate concluir e saem; sem porta exposta e sem probe de container.
+
+# Ajuste para o entrypoint real do job.
+CMD ["python", "-m", "{{ app_name }}"]
+{%- endif %}
