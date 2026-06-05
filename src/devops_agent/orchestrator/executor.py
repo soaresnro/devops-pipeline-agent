@@ -45,6 +45,16 @@ class DevOpsTemplatesRepo:
     tag: str
 
 
+@dataclass
+class HelmRepo:
+    """Repo onde o Helm chart e escrito (clone + PR), com a branch alvo."""
+
+    clone_url: str
+    project: str
+    repository: str
+    branch: str
+
+
 def _parse_devops_repo(settings: Settings) -> DevOpsTemplatesRepo:
     """Extrai project/repo da URL do devops-templates."""
     from devops_agent.tools.validation import validate_repo_url
@@ -59,6 +69,22 @@ def _parse_devops_repo(settings: Settings) -> DevOpsTemplatesRepo:
         project=r.data.project,
         repository=r.data.repository,
         tag=settings.devops_templates_tag,
+    )
+
+
+def _parse_helm_repo(settings: Settings) -> HelmRepo:
+    """Repo do Helm: DEVOPS_HELM_REPO_URL, ou o de templates se nao informado."""
+    from devops_agent.tools.validation import validate_repo_url
+
+    url = settings.devops_helm_repo_url or settings.devops_templates_repo_url
+    r = validate_repo_url(url, allowed_org=settings.azdo_org)
+    if not r.ok or r.data is None:
+        raise ValueError(f"URL do repo do Helm invalida: {r.error}")
+    return HelmRepo(
+        clone_url=url,
+        project=r.data.project,
+        repository=r.data.repository,
+        branch=settings.devops_helm_repo_branch,
     )
 
 
@@ -267,7 +293,7 @@ def execute(
     dry = bundle_result.data
     assert dry is not None
     bundle = dry.bundle
-    devops_repo = _parse_devops_repo(settings)
+    helm_repo = _parse_helm_repo(settings)
 
     assert session.repo_coords is not None
     assert session.app_type is not None
@@ -351,24 +377,24 @@ def execute(
 
         execution.app_branch = app_branch
 
-        # 2) Repo devops-templates
+        # 2) Repo do Helm (pode ser separado do repo de templates)
         helm_clone = clone_shallow(
             ws,
             key="devops",
-            clone_url=devops_repo.clone_url,
-            branch="main",  # convencao - a tag e referenciada no pipeline yaml
+            clone_url=helm_repo.clone_url,
+            branch=helm_repo.branch,
             auth=git_auth,
         )
         if not helm_clone.ok or helm_clone.data is None:
             return ToolResult.failure(
-                helm_clone.error or "clone devops falhou", code="execute.devops_clone"
+                helm_clone.error or "clone do repo do Helm falhou", code="execute.devops_clone"
             )
 
         existing_devops = list_existing_paths(helm_clone.data)
         colisoes_devops = [f.path for f in bundle.helm_chart_files if f.path in existing_devops]
         if colisoes_devops:
             return ToolResult.failure(
-                f"Arquivos ja existem no repo de devops-templates: {', '.join(colisoes_devops[:3])}",
+                f"Arquivos ja existem no repo do Helm: {', '.join(colisoes_devops[:3])}",
                 code="execute.devops_collision",
             )
 
@@ -414,10 +440,10 @@ def execute(
 
         reviewers = [r.strip() for r in settings.devops_templates_reviewers.split(",") if r.strip()]
         pr_helm = client.create_pull_request(
-            devops_repo.project,
-            devops_repo.repository,
+            helm_repo.project,
+            helm_repo.repository,
             source_branch=helm_branch,
-            target_branch="main",
+            target_branch=helm_repo.branch,
             title=f"chore(charts): novo chart para {session.app_name}",
             description=pr_description,
             reviewers=reviewers or None,
