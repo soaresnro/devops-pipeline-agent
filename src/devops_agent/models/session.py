@@ -18,6 +18,7 @@ class Phase(StrEnum):
     ASK_BRANCH = "ask_branch"
     ASK_NAMESPACE = "ask_namespace"
     ASK_APP_TYPE = "ask_app_type"
+    ASK_SCHEDULE = "ask_schedule"
     DETECT_LANGUAGE = "detect_language"
     ASK_LANGUAGE = "ask_language"
     VALIDATE = "validate"
@@ -56,6 +57,7 @@ class SessionState(BaseModel):
     app_name: str | None = None
     language: Language | None = None
     language_candidates: list[Language] = Field(default_factory=list)
+    schedule: str | None = None  # cron do CronJob; None usa o default do scaffold
 
     confirmed: bool = False
     execution: ExecutionResult | None = None

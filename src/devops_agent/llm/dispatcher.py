@@ -22,6 +22,7 @@ from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
+    validate_cron_schedule,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -51,6 +52,10 @@ class _AppTypeArgs(BaseModel):
 
 class _LanguageArgs(BaseModel):
     language: str
+
+
+class _ScheduleArgs(BaseModel):
+    schedule: str
 
 
 class _ExecuteArgs(BaseModel):
@@ -158,9 +163,34 @@ def _handle_validate_app_type(
         return _fail(r.error or "tipo invalido", r.error_code)
 
     session.app_type = r.data
-    # web nao detecta linguagem; demais tipos passam por detect_language antes do scaffold.
-    session.phase = Phase.VALIDATE if r.data == AppType.WEB else Phase.DETECT_LANGUAGE
+    # web nao detecta linguagem; cronjob pergunta o agendamento; demais detectam linguagem.
+    if r.data == AppType.WEB:
+        session.phase = Phase.VALIDATE
+    elif r.data == AppType.CRONJOB:
+        session.phase = Phase.ASK_SCHEDULE
+    else:
+        session.phase = Phase.DETECT_LANGUAGE
     return _ok({"app_type": r.data.value})
+
+
+def _handle_set_schedule(
+    args: dict[str, Any], session: SessionState, settings: Settings
+) -> dict[str, Any]:
+    try:
+        parsed = _ScheduleArgs.model_validate(args)
+    except ValidationError as exc:
+        return _fail(f"argumentos invalidos: {exc.errors()[0]['msg']}", "args.invalid")
+
+    if session.app_type != AppType.CRONJOB:
+        return _fail("set_schedule so se aplica ao tipo cronjob.", "schedule.not_cronjob")
+
+    r = validate_cron_schedule(parsed.schedule)
+    if not r.ok or r.data is None:
+        return _fail(r.error or "agendamento invalido", r.error_code)
+
+    session.schedule = r.data
+    session.phase = Phase.DETECT_LANGUAGE
+    return _ok({"schedule": r.data})
 
 
 def _handle_detect_language(
@@ -289,6 +319,7 @@ _HANDLERS: dict[str, Handler] = {
     "validate_branch": _handle_validate_branch,
     "validate_namespace": _handle_validate_namespace,
     "validate_app_type": _handle_validate_app_type,
+    "set_schedule": _handle_set_schedule,
     "detect_language": _handle_detect_language,
     "set_language": _handle_set_language,
     "propose_scaffold": _handle_propose_scaffold,

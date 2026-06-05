@@ -122,7 +122,7 @@ autoscaling:
 {%- if app_type == 'cronjob' %}
 
 cronjob:
-  schedule: "0 * * * *"  # ATUALIZE com o agendamento real (formato cron)
+  schedule: "{{ schedule }}"
   concurrencyPolicy: Forbid
   restartPolicy: OnFailure
   backoffLimit: 3

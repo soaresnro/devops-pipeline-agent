@@ -30,6 +30,12 @@ class TestHandleAppType:
         assert session.phase == Phase.VALIDATE
         assert session.language is None
 
+    def test_cronjob_vai_para_ask_schedule(self, session: SessionState) -> None:
+        step = sm.handle_app_type(session, "cronjob")
+        assert not step.error
+        assert session.app_type == AppType.CRONJOB
+        assert session.phase == Phase.ASK_SCHEDULE
+
     def test_tipo_invalido_permanece_em_ask_app_type(self, session: SessionState) -> None:
         step = sm.handle_app_type(session, "lambda")
         assert step.error
@@ -58,3 +64,26 @@ class TestHandleLanguage:
         # nao volta para DETECT_LANGUAGE (evita re-bater na API)
         assert session.phase == Phase.ASK_LANGUAGE
         assert session.language is None
+
+
+class TestHandleSchedule:
+    def test_cron_valido_vai_para_detect_language(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_SCHEDULE
+        step = sm.handle_schedule(session, "0 2 * * *")
+        assert not step.error
+        assert session.schedule == "0 2 * * *"
+        assert session.phase == Phase.DETECT_LANGUAGE
+
+    def test_vazio_mantem_default_e_avanca(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_SCHEDULE
+        step = sm.handle_schedule(session, "   ")
+        assert not step.error
+        assert session.schedule is None  # default aplicado no scaffold
+        assert session.phase == Phase.DETECT_LANGUAGE
+
+    def test_invalido_permanece_em_ask_schedule(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_SCHEDULE
+        step = sm.handle_schedule(session, "0 2 *")
+        assert step.error
+        assert step.next_phase == Phase.ASK_SCHEDULE
+        assert session.schedule is None
