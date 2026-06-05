@@ -168,7 +168,8 @@ def detect_language_step(
 ) -> ToolResult[LanguageDetection]:
     """Detecta a linguagem do repo (via Items API, sem clone) e transiciona a fase.
 
-    Best-effort: ausencia de PAT, falta de pre-requisitos ou qualquer falha de API
+    Usa o app token do SP (modo sp) ou o PAT (modo pat) para chamar a Items API.
+    Best-effort: ausencia de credencial, falta de pre-requisitos ou qualquer falha
     sao tratadas como inconclusivo -> ASK_LANGUAGE (nunca derruba a sessao). Sempre
     sai da fase DETECT_LANGUAGE para evitar loop no driver.
     """
@@ -180,10 +181,21 @@ def detect_language_step(
             LanguageDetection(language=None, candidates=candidates or [], is_conclusive=False)
         )
 
-    if not session.repo_coords or not session.branch or not settings.azdo_pat:
+    if not session.repo_coords or not session.branch:
         return _inconclusive()
 
-    with AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat) as client:
+    # Cliente conforme o modo de auth: bearer (app token do SP) no modo sp, PAT no modo pat.
+    if settings.azdo_auth_mode == "sp":
+        token = acquire_app_token(settings)
+        if not token.ok or token.data is None:
+            return _inconclusive()
+        client = AzdoClient(organization=settings.azdo_org, bearer_token=token.data)
+    elif settings.azdo_pat:
+        client = AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat)
+    else:
+        return _inconclusive()
+
+    with client:
         items = client.list_root_items(
             session.repo_coords.project,
             session.repo_coords.repository,
