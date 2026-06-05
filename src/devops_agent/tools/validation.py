@@ -63,6 +63,14 @@ _AZDO_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Formato legado (org no subdominio):
+#   https://{org}.visualstudio.com/{project}/_git/{repo}
+#   https://{org}@{org}.visualstudio.com/{project}/_git/{repo}
+_AZDO_VSTS_URL_RE = re.compile(
+    r"^https://(?:[^@]+@)?(?P<org>[^.@/]+)\.visualstudio\.com/(?P<project>[^/]+)/_git/(?P<repo>[^/?#]+)/?$",
+    re.IGNORECASE,
+)
+
 # Branch git: regras simplificadas (suficientes para 99% dos casos).
 _BRANCH_RE = re.compile(r"^(?!/|.*//|.*\.\.|.*@\{)[A-Za-z0-9._/\-]+(?<![./])$")
 
@@ -92,11 +100,13 @@ def validate_repo_url(
             code="repo.not_https",
         )
 
-    match = _AZDO_URL_RE.match(url.strip())
+    clean = url.strip()
+    match = _AZDO_URL_RE.match(clean) or _AZDO_VSTS_URL_RE.match(clean)
     if not match:
         return ToolResult.failure(
             "Formato nao reconhecido. Use o link de clone HTTPS do Azure DevOps: "
-            "https://dev.azure.com/<org>/<projeto>/_git/<repo>",
+            "https://dev.azure.com/<org>/<projeto>/_git/<repo> "
+            "ou https://<org>.visualstudio.com/<projeto>/_git/<repo>",
             code="repo.bad_format",
         )
 
