@@ -153,6 +153,7 @@ def prepare_dry_run(
         app_type=session.app_type,
         language=session.language or Language.DOTNET,
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
+        pipeline_pass_language=settings.pipeline_pass_language,
         namespace=session.namespace,
         branch=session.branch,
         acr_name=acr_name,
