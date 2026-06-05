@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     azdo_sp_tenant_id: str | None = None
     azdo_sp_client_id: str | None = None
     azdo_sp_client_secret: str | None = None
+    # App publico para login interativo (device code) que obtem a assercao do
+    # usuario para o OBO. Distinto do SP confidencial acima.
+    azdo_login_client_id: str | None = None
+    # Escopo a pedir no login (audience = app confidencial do agente). Default:
+    # "{azdo_sp_client_id}/.default".
+    azdo_agent_api_scope: str | None = None
 
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
