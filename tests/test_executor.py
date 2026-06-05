@@ -205,6 +205,23 @@ class TestDetectLanguageStepSp:
         # usou o token do SP (bearer), nao PAT
         assert seen_auth == ["Bearer app-token"]
 
+    @respx.mock
+    def test_sp_detecta_dotnet_vai_para_ask_dotnet_version(
+        self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings, confirmed_session: SessionState
+    ) -> None:
+        monkeypatch.setattr(
+            exec_mod, "acquire_app_token", lambda settings: ToolResult.success("app-token")
+        )
+        respx.get(_ITEMS_URL).mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"path": "/Api.csproj", "isFolder": False}]}
+            )
+        )
+        r = exec_mod.detect_language_step(confirmed_session, sp_settings)
+        assert r.ok
+        assert confirmed_session.language == Language.DOTNET
+        assert confirmed_session.phase == Phase.ASK_DOTNET_VERSION
+
     def test_sp_sem_app_token_cai_em_ask_language(
         self, monkeypatch: pytest.MonkeyPatch, sp_settings: Settings, confirmed_session: SessionState
     ) -> None:

@@ -6,7 +6,21 @@ import pytest
 import yaml
 
 from devops_agent.models import AppType, Language
-from devops_agent.tools.scaffold import build_bundle, dry_run
+from devops_agent.tools.scaffold import _pipeline_stack, build_bundle, dry_run
+
+
+class TestPipelineStack:
+    def test_dotnet_nao_web_usa_stack_dotnet(self) -> None:
+        assert _pipeline_stack(AppType.API, Language.DOTNET) == "dotnet"
+        assert _pipeline_stack(AppType.CRONJOB, Language.DOTNET) == "dotnet"
+
+    def test_nao_dotnet_usa_default(self) -> None:
+        assert _pipeline_stack(AppType.API, Language.GO) == "_default"
+        assert _pipeline_stack(AppType.WORKER, Language.NODE) == "_default"
+
+    def test_web_sempre_default(self) -> None:
+        # web ignora a linguagem; nao usa o stack dotnet
+        assert _pipeline_stack(AppType.WEB, Language.DOTNET) == "_default"
 
 # Cada tipo gera um unico template de workload no chart; cronjob usa CronJob, o resto Deployment.
 _WORKLOAD_TEMPLATE: dict[AppType, str] = {
@@ -95,23 +109,43 @@ class TestBuildBundle:
 
 
 class TestRenderedContent:
-    def test_pipeline_yaml_referencia_template_devops_por_tag(
+    def test_pipeline_dotnet_referencia_template_devops_por_tag(
         self,
         base_ctx: dict[str, object],
     ) -> None:
+        # default language=dotnet -> usa o template de pipeline dotnet
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
         assert "refs/tags/v3" in pipeline.content
         assert "Platform/devops-templates" in pipeline.content
-        assert "appName: payments-api" in pipeline.content
-        assert "appType: api" in pipeline.content
+        assert "applicationName: payments-api" in pipeline.content
         assert "namespace: payments-prod" in pipeline.content
 
-    def test_pipeline_yaml_e_yaml_valido(self, base_ctx: dict[str, object]) -> None:
-        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+    def test_pipeline_dotnet_params(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, dotnet_version="9.0.x", **base_ctx  # type: ignore[arg-type]
+        )
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
         parsed = yaml.safe_load(pipeline.content)
+        params = parsed["extends"]["parameters"]
         assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@devops-templates"
+        assert params["applicationName"] == "payments-api"
+        assert params["ApplicationType"] == "dotnet"
+        assert params["projectType"] == "webapi"
+        assert params["dotNetVersion"] == "9.0.x"
+        assert params["deployAKS"] is True
+        assert params["deployAppService"] is False
+        assert "appType" not in params
+
+    def test_pipeline_default_para_linguagem_nao_dotnet(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        # go (nao-dotnet) cai no template _default, que mantem o contrato generico
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.GO, **base_ctx  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
         assert parsed["extends"]["parameters"]["appType"] == "api"
         assert parsed["extends"]["parameters"]["exposeExternal"] is False
 
