@@ -157,6 +157,7 @@ def _build_template_context(
     devops_templates_repo_name: str,
     devops_templates_tag: str,
     schedule: str,
+    pipeline_pass_language: bool,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
@@ -164,6 +165,7 @@ def _build_template_context(
         "app_type": app_type.value,
         "language": language.value,
         "schedule": schedule,
+        "pipeline_pass_language": pipeline_pass_language,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -235,6 +237,7 @@ def build_bundle(
     devops_templates_tag: str,
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
+    pipeline_pass_language: bool = False,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     ctx = _build_template_context(
@@ -247,6 +250,7 @@ def build_bundle(
         devops_templates_repo_name=devops_templates_repo_name,
         devops_templates_tag=devops_templates_tag,
         schedule=schedule,
+        pipeline_pass_language=pipeline_pass_language,
     )
 
     app_files = [
@@ -272,6 +276,7 @@ def dry_run(
     devops_templates_tag: str,
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
+    pipeline_pass_language: bool = False,
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -287,6 +292,7 @@ def dry_run(
             devops_templates_repo_name=devops_templates_repo_name,
             devops_templates_tag=devops_templates_tag,
             schedule=schedule,
+            pipeline_pass_language=pipeline_pass_language,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(
