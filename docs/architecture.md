@@ -106,7 +106,7 @@ Exemplo: Maria quer pipeline para API `payments-api`.
 4. Pergunta namespace → `validate_namespace`
 5. Pergunta tipo → `validate_app_type`
 6. `propose_scaffold` → renderiza tudo, retorna lista de arquivos + colisoes
-7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml no `payments-api` e helm/apps/payments-api/* + environments/<env>/payments-api/values.yaml no `devops-templates`. Confirma?"
+7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml no `payments-api` e helm/apps/payments-api/* + helm/environments/<env>/payments-api/values.yaml no `devops-templates`. Confirma?"
 8. EXECUTE: clone shallow → escreve arquivos → cria branch `scaffold/api-20260529-1430` → commit/push → abre PR no repo da app e PR no repo devops-templates
 9. Cleanup tmpfs
 10. Agente entrega 2 links de PR no chat
@@ -152,8 +152,9 @@ extends:
     imageTag: $(Build.BuildId)
 ```
 
-O chart vai para `helm/apps/<app>` e os overrides por ambiente para `environments/<env>/<app>/values.yaml`
-(o template do time faz `helm upgrade -f` por ambiente).
+O chart vai para `helm/apps/<app>` e os overrides por ambiente para `helm/environments/<env>/<app>/values.yaml`
+(o diretorio `environments/` fica DENTRO de `helm/`, como no repo modelo; o template do time faz
+`helm upgrade -f` por ambiente).
 
 **Modelo do time (AksHelmCharts):** api/web/worker geram uma chart FINA que depende de uma base chart
 compartilhada (microservice-chart/worker-chart, em AksHelmBaseCharts) — sem templates proprios; os values
