@@ -250,7 +250,9 @@ class TestRenderedContent:
         assert params["deployAKS"] is True
         assert params["deployAppService"] is False
         assert params["deploymentStrategy"] == "rolling"
-        assert params["imageName"] == "$(Build.Repository.Name)"
+        # imageName = app_name (lowercase) para nome de repositorio Docker valido e
+        # consistente com o image.repository do Helm.
+        assert params["imageName"] == "payments-api"
         assert params["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
         assert "appType" not in params
 
