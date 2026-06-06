@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (247 testes)
+.venv\Scripts\python -m pytest          # toda a suite (249 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -64,7 +64,7 @@ src/devops_agent/
     helm/worker/      deployment + keda-scaledobject
     helm/web/         deployment + service + ingress TLS + hpa
     environments/     values.yaml.j2 (override fino por ambiente)
-tests/                247 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                249 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -75,7 +75,7 @@ tests/                247 testes: unit + integration (git contra remote local) +
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
 - **Layout do Helm alinhado ao template do time:** chart em `helm/apps/<app>` e override por ambiente em `environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
 - **O repo do Helm pode ser separado do repo de templates:** `DEVOPS_HELM_REPO_URL` (fallback para `DEVOPS_TEMPLATES_REPO_URL`) e `DEVOPS_HELM_REPO_BRANCH` (default `main`, ex.: `master`) — clone + PR do chart vao para esse repo/branch (`executor._parse_helm_repo`). O repo de templates so e referenciado por tag na pipeline.
-- **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false); node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, a versao e perguntada no fluxo (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x).
+- **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real - segue o modelo do time: `name`, `trigger` fixo (develop/release/hotfix/feature), `resources` (templates SEM ref + manifests = repo do Helm por branch), `pool`, variable groups, e os params (deployAKS=true/deployAppService=false, ApplicationType, projectType, deploymentStrategy=rolling, image*). node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, a versao e perguntada no fluxo (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x); `pathApiManagementService`/`pathAutomation` sao derivados do app_name (sem prefixo `api-`).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.
 - **Tool calls retornam dict** `{ok, data, error, error_code}` — nunca exception ao LLM. Se um handler lancar excecao, o dispatcher captura e converte. Mantenha esse contrato.
@@ -114,6 +114,7 @@ Ver `docs/architecture.md` secao 12. Resumo:
 
 ## Testes - guia rapido
 
+- `conftest.py` — fixture autouse que desabilita a leitura do `.env` (tests hermeticos; o `.env` real do dev nao polui `Settings`).
 - `test_validation.py` — regex/parsing puro. Rapido (<1s).
 - `test_scaffold.py` — render de templates Jinja2 + parse YAML para validar estrutura. Rapido.
 - `test_git_ops.py` — git real contra bare repo local em tmp_path. Ciclo completo clone→write→commit→push em ~10s.
