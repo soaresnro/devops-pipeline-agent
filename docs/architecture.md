@@ -155,6 +155,11 @@ extends:
 O chart vai para `helm/apps/<app>` e os overrides por ambiente para `environments/<env>/<app>/values.yaml`
 (o template do time faz `helm upgrade -f` por ambiente).
 
+**Modelo do time (AksHelmCharts):** api/web/worker geram uma chart FINA que depende de uma base chart
+compartilhada (microservice-chart/worker-chart, em AksHelmBaseCharts) — sem templates proprios; os values
+ficam aninhados sob a chave da base chart. cronjob mantem o chart self-contained. A tabela abaixo descreve
+as caracteristicas conceituais por tipo (hoje materializadas pela base chart).
+
 **Decisao critica:** referencia por tag evita que mudanca no template quebre pipelines em producao sem aviso.
 
 ### Variacoes API/Worker/Web

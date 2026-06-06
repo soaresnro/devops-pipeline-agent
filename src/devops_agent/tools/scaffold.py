@@ -230,6 +230,15 @@ def render_pipeline_yaml(context: dict[str, object], *, stack: str = "_default")
     return _render_template(f"pipeline/{stack}/azure-pipelines.yaml.j2", context)
 
 
+# Base charts do time (em AksHelmBaseCharts) por app_type: (nome, versao, kind).
+# cronjob nao tem base chart -> chart self-contained (templates proprios).
+_BASE_CHARTS: dict[AppType, tuple[str, str, str]] = {
+    AppType.API: ("microservice-chart", "0.4.4", "microservice"),
+    AppType.WEB: ("microservice-chart", "0.4.4", "microservice"),
+    AppType.WORKER: ("worker-chart", "1.0.0", "worker"),
+}
+
+
 def render_helm_chart(
     app_type: AppType,
     context: dict[str, object],
@@ -237,37 +246,78 @@ def render_helm_chart(
 ) -> list[ScaffoldedFile]:
     """Renderiza o Helm chart (helm/apps/<app>) + override por ambiente.
 
-    Layout esperado pelo template do time: chart em helm/apps/<app> e values por
-    ambiente em environments/<env>/<app>/values.yaml (override fino sobre o base).
+    api/web/worker geram uma chart fina que DEPENDE de uma base chart do time
+    (microservice-chart/worker-chart), com values aninhados sob a chave da base
+    chart. cronjob (sem base chart) mantem o chart self-contained com templates.
     """
+    base = _BASE_CHARTS.get(app_type)
+    if base is None:
+        return _render_selfcontained_chart(app_type, context, environments)
+    return _render_basechart_chart(base, context, environments)
+
+
+def _render_basechart_chart(
+    base: tuple[str, str, str],
+    context: dict[str, object],
+    environments: list[str],
+) -> list[ScaffoldedFile]:
+    name, version, kind = base
+    app_name = context["app_name"]
+    chart_root = f"helm/apps/{app_name}"
+    ctx = {**context, "base_chart_name": name, "base_chart_version": version}
+
+    files: list[ScaffoldedFile] = [
+        ScaffoldedFile(
+            path=f"{chart_root}/Chart.yaml",
+            content=_render_template("helm/basechart/Chart.yaml.j2", ctx),
+        ),
+        ScaffoldedFile(
+            path=f"{chart_root}/values.yaml",
+            content=_render_template(f"helm/basechart/{kind}/values.yaml.j2", ctx),
+        ),
+    ]
+    for env in environments:
+        env_values = _render_template(f"environments/{kind}/values.yaml.j2", {**ctx, "env": env})
+        files.append(
+            ScaffoldedFile(path=f"environments/{env}/{app_name}/values.yaml", content=env_values)
+        )
+    files.sort(key=lambda f: f.path)
+    return files
+
+
+def _render_selfcontained_chart(
+    app_type: AppType,
+    context: dict[str, object],
+    environments: list[str],
+) -> list[ScaffoldedFile]:
+    """Chart self-contained (cronjob): Chart.yaml + values + templates proprios."""
     files: list[ScaffoldedFile] = []
     app_name = context["app_name"]
-
-    chart_yaml = _render_template("helm/_common/Chart.yaml.j2", context)
-    values_yaml = _render_template("helm/_common/values.yaml.j2", context)
-
     chart_root = f"helm/apps/{app_name}"
-    files.append(ScaffoldedFile(path=f"{chart_root}/Chart.yaml", content=chart_yaml))
-    files.append(ScaffoldedFile(path=f"{chart_root}/values.yaml", content=values_yaml))
 
-    # Templates Helm estaticos vindos de _common/templates/
+    files.append(
+        ScaffoldedFile(
+            path=f"{chart_root}/Chart.yaml",
+            content=_render_template("helm/_common/Chart.yaml.j2", context),
+        )
+    )
+    files.append(
+        ScaffoldedFile(
+            path=f"{chart_root}/values.yaml",
+            content=_render_template("helm/_common/values.yaml.j2", context),
+        )
+    )
     for rel, content in _walk_static_helm_files("helm/_common/templates"):
         files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
-
-    # Templates Helm especificos do tipo (api/worker/web/cronjob)
     for rel, content in _walk_static_helm_files(f"helm/{app_type.value}/templates"):
         files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
 
-    # Override fino por ambiente (StrictUndefined exige 'env' no contexto).
     for env in environments:
         env_values = _render_template("environments/values.yaml.j2", {**context, "env": env})
         files.append(
-            ScaffoldedFile(
-                path=f"environments/{env}/{app_name}/values.yaml", content=env_values
-            )
+            ScaffoldedFile(path=f"environments/{env}/{app_name}/values.yaml", content=env_values)
         )
 
-    # Ordena para determinismo (testes de snapshot)
     files.sort(key=lambda f: f.path)
     return files
 

@@ -1,0 +1,25 @@
+# Values base de {{ app_name }} ({{ app_type }}).
+# A renderizacao vem da base chart microservice-chart; aqui apenas a configuramos.
+# Overrides por ambiente em environments/<env>/{{ app_name }}/values.yaml.
+microservice-chart:
+  strategy:
+    type: RollingUpdate
+
+  service:
+    port: 8080
+
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  pdb:
+    enabled: false

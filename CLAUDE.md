@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_* e AZURE_OPENAI_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (262 testes)
+.venv\Scripts\python -m pytest          # toda a suite (261 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -59,12 +59,11 @@ src/devops_agent/
   templates/
     pipeline/         azure-pipelines.yaml.j2 por stack: dotnet/ (contrato real) e _default/ (generico)
     dockerfile/       dotnet/node/python/go Dockerfile.j2 (runtime-only, COPY artefatos da pipeline, Alpine/tz/health) + web (nginx)
-    helm/_common/     Chart.yaml, values.yaml, _helpers.tpl, serviceaccount
-    helm/api/         deployment + service + ingress + hpa
-    helm/worker/      deployment + keda-scaledobject
-    helm/web/         deployment + service + ingress TLS + hpa
-    environments/     values.yaml.j2 (override fino por ambiente)
-tests/                262 testes: unit + integration (git contra remote local) + e2e CLI
+    helm/basechart/   Chart.yaml.j2 (dependency na base chart) + microservice/worker values base (api/web/worker)
+    helm/_common/     Chart.yaml, values.yaml, templates (_helpers, serviceaccount) - so cronjob
+    helm/cronjob/     cronjob.yaml (self-contained)
+    environments/     microservice/ + worker/ (skeleton por ambiente) + values.yaml.j2 (cronjob)
+tests/                261 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -74,6 +73,7 @@ tests/                262 testes: unit + integration (git contra remote local) +
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
 - **Layout do Helm alinhado ao template do time:** chart em `helm/apps/<app>` e override por ambiente em `environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
+- **Helm chart segue o padrao do time (AksHelmCharts):** api/web/worker geram uma chart FINA (`helm/basechart/Chart.yaml.j2`) que DEPENDE de uma base chart compartilhada (microservice-chart para api/web, worker-chart para worker, em `AksHelmBaseCharts` via `file://`), com values aninhados sob a chave da base chart (`microservice-chart:`/`worker-chart:`). NAO geramos templates (vem da base chart); o `helm dependency build` (CI) baixa a base e gera o .tgz/lock. Override por ambiente em `environments/<env>/<app>/values.yaml` (skeleton: image por registry `acraks<env>eastus`, tag `__imageTag__`, ingresses/serviceAccount/workloadIdentity/env com placeholders). cronjob (sem base chart) mantem o chart self-contained (`helm/_common` + `helm/cronjob`). Selecao em `scaffold._BASE_CHARTS`.
 - **O repo do Helm pode ser separado do repo de templates:** `DEVOPS_HELM_REPO_URL` (fallback para `DEVOPS_TEMPLATES_REPO_URL`) e `DEVOPS_HELM_REPO_BRANCH` (default `main`, ex.: `master`) — clone + PR do chart vao para esse repo/branch (`executor._parse_helm_repo`). O repo de templates so e referenciado por tag na pipeline.
 - **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real - segue o modelo do time: `name`, `trigger` fixo (develop/release/hotfix/feature), `resources` (templates SEM ref + manifests = repo do Helm por branch), `pool`, variable groups, e os params (deployAKS=true/deployAppService=false, ApplicationType, projectType, deploymentStrategy=rolling, image*). node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, no fluxo pergunta-se a versao (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x) e o assembly de entrada (.dll) (fase ASK_DOTNET_ENTRYPOINT / tool set_dotnet_entrypoint; default {app_name}.dll); `pathApiManagementService`/`pathAutomation` sao derivados do app_name (sem prefixo `api-`).
 - **Dockerfiles sao runtime-only** (modelo do time): sem build stage, `COPY . .` dos artefatos publicados pela pipeline; base Alpine, deps (tzdata/ca-certs/wget), timezone `America/Sao_Paulo`, HEALTHCHECK `/health` (api). dotnet: base aspnet (api) / runtime (worker/cronjob), tag derivada da versao; ENTRYPOINT = assembly informado. node/python/go com entrypoints placeholder (CI pre-builda).
