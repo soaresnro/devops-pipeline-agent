@@ -1,28 +1,67 @@
 # Pipeline gerada automaticamente pelo devops-pipeline-agent
-# App: {{ app_name }} | Tipo: {{ app_type }} | Stack: .NET {{ dotnet_version }} | Namespace: {{ namespace }}
+# App: {{ app_name }} | Stack: .NET {{ dotnet_version }} | Namespace: {{ namespace }}
 # NAO edite manualmente - este arquivo apenas referencia o template centralizado.
-# Para customizar comportamento, ajuste os parametros abaixo ou os values do Helm chart.
+
+name: $(Build.SourceBranchName).$(Build.BuildId)
 
 trigger:
   branches:
     include:
-      - {{ branch }}
+      - develop
+      - release/*
+      - hotfix/*
+      - feature/*
 
 resources:
   repositories:
-    - repository: devops-templates
+    - repository: templates
       type: git
       name: {{ devops_templates_repo_name }}
-      ref: refs/tags/{{ devops_templates_tag }}
+    - repository: manifests
+      type: git
+      name: {{ devops_helm_repo_name }}
+      ref: refs/heads/{{ devops_helm_repo_branch }}
+
+pool:
+  name: agt_pool_linux_vmss
+
+variables:
+  - group: Sonarqube
+  - group: DevOpsShared
+  - group: ServiceConnections
+  - group: k8s-dev
+  - group: k8s-qa
+  - group: k8s-uat
+  - group: k8s-prod
+
+  - name: SQ_PROJECT_KEY
+    value: $(Build.Repository.Name)
+  - name: buildConfiguration
+    value: 'Release'
 
 extends:
-  template: {{ pipeline_template_path }}@devops-templates
+  template: {{ pipeline_template_path }}@templates
   parameters:
-    applicationName: {{ app_name }}
-    namespace: {{ namespace }}
-    ApplicationType: dotnet
-    projectType: webapi
-    dotNetVersion: {{ dotnet_version }}
+    # Plataformas alvo
     deployAppService: false
     deployAKS: true
-    imageTag: $(Build.BuildId)
+
+    # Defina valores da aplicacao
+    applicationName: '{{ app_name }}'
+    namespace: '{{ namespace }}'
+
+    # Estrategia de deploy
+    deploymentStrategy: 'rolling'
+
+    # Tipo e stack
+    ApplicationType: 'dotnet'
+    projectType: 'webapi'
+    dotNetVersion: '{{ dotnet_version }}'
+
+    # Configuracoes complementares
+    pathApiManagementService: '{{ app_path }}'
+    pathAutomation: '{{ app_path }}'
+
+    # Variaveis para Docker
+    imageName: '$(Build.Repository.Name)'
+    imageTag: '$(Build.SourceBranchName)-$(Build.BuildId)'

@@ -173,6 +173,7 @@ def prepare_dry_run(
         return ToolResult.failure("Sessao incompleta para dry_run.", code="session.incomplete")
 
     devops_repo = _parse_devops_repo(settings)
+    helm_repo = _parse_helm_repo(settings)
     acr_name = _derive_acr_name(settings)
 
     language = session.language or Language.DOTNET
@@ -190,6 +191,8 @@ def prepare_dry_run(
         acr_name=acr_name,
         devops_templates_repo_name=f"{devops_repo.project}/{devops_repo.repository}",
         devops_templates_tag=devops_repo.tag,
+        devops_helm_repo_name=f"{helm_repo.project}/{helm_repo.repository}",
+        devops_helm_repo_branch=helm_repo.branch,
     )
 
 

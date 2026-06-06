@@ -169,16 +169,22 @@ def _build_template_context(
     pipeline_pass_language: bool,
     pipeline_template_path: str,
     dotnet_version: str,
+    devops_helm_repo_name: str,
+    devops_helm_repo_branch: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
         "app_name": app_name,
+        # path de APIM/automation: convencao do time (app_name sem o prefixo 'api-').
+        "app_path": app_name.removeprefix("api-"),
         "app_type": app_type.value,
         "language": language.value,
         "schedule": schedule,
         "pipeline_pass_language": pipeline_pass_language,
         "pipeline_template_path": pipeline_template_path,
         "dotnet_version": dotnet_version,
+        "devops_helm_repo_name": devops_helm_repo_name,
+        "devops_helm_repo_branch": devops_helm_repo_branch,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -276,6 +282,8 @@ def build_bundle(
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     environments: list[str] | None = None,
+    devops_helm_repo_name: str | None = None,
+    devops_helm_repo_branch: str = "main",
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     envs = environments if environments is not None else list(DEFAULT_ENVIRONMENTS)
@@ -292,6 +300,8 @@ def build_bundle(
         pipeline_pass_language=pipeline_pass_language,
         pipeline_template_path=pipeline_template_path,
         dotnet_version=dotnet_version,
+        devops_helm_repo_name=devops_helm_repo_name or devops_templates_repo_name,
+        devops_helm_repo_branch=devops_helm_repo_branch,
     )
 
     app_files = [
@@ -321,6 +331,8 @@ def dry_run(
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     environments: list[str] | None = None,
+    devops_helm_repo_name: str | None = None,
+    devops_helm_repo_branch: str = "main",
     existing_app_repo_paths: set[str] | None = None,
     existing_helm_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -340,6 +352,8 @@ def dry_run(
             pipeline_template_path=pipeline_template_path,
             dotnet_version=dotnet_version,
             environments=environments,
+            devops_helm_repo_name=devops_helm_repo_name,
+            devops_helm_repo_branch=devops_helm_repo_branch,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(

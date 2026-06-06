@@ -138,33 +138,77 @@ class TestEnvironments:
 
 
 class TestRenderedContent:
-    def test_pipeline_dotnet_referencia_template_devops_por_tag(
+    def test_pipeline_dotnet_estrutura_do_modelo_do_time(
         self,
         base_ctx: dict[str, object],
     ) -> None:
-        # default language=dotnet -> usa o template de pipeline dotnet
+        # default language=dotnet -> usa o template de pipeline dotnet (modelo real do time)
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
-        assert "refs/tags/v3" in pipeline.content
-        assert "Platform/devops-templates" in pipeline.content
-        assert "applicationName: payments-api" in pipeline.content
-        assert "namespace: payments-prod" in pipeline.content
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["name"] == "$(Build.SourceBranchName).$(Build.BuildId)"
+        assert parsed["trigger"]["branches"]["include"] == [
+            "develop",
+            "release/*",
+            "hotfix/*",
+            "feature/*",
+        ]
+        repos = {r["repository"]: r for r in parsed["resources"]["repositories"]}
+        # templates SEM ref (usa branch default do repo, nao tag)
+        assert "ref" not in repos["templates"]
+        assert repos["templates"]["name"] == "Platform/devops-templates"
+        # manifests = repo do Helm, referenciado por branch
+        assert repos["manifests"]["ref"] == "refs/heads/main"
+        assert parsed["pool"]["name"] == "agt_pool_linux_vmss"
+        var_groups = [v["group"] for v in parsed["variables"] if "group" in v]
+        assert "Sonarqube" in var_groups and "k8s-prod" in var_groups
+        # alias @templates, sem tag
+        assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@templates"
+
+    def test_pipeline_dotnet_manifests_usa_repo_e_branch_configurados(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            devops_helm_repo_name="Platform/AksHelmCharts",
+            devops_helm_repo_branch="master",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        repos = {
+            r["repository"]: r
+            for r in yaml.safe_load(pipeline.content)["resources"]["repositories"]
+        }
+        assert repos["manifests"]["name"] == "Platform/AksHelmCharts"
+        assert repos["manifests"]["ref"] == "refs/heads/master"
 
     def test_pipeline_dotnet_params(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(
             app_type=AppType.API, dotnet_version="9.0.x", **base_ctx  # type: ignore[arg-type]
         )
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
-        parsed = yaml.safe_load(pipeline.content)
-        params = parsed["extends"]["parameters"]
-        assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@devops-templates"
+        params = yaml.safe_load(pipeline.content)["extends"]["parameters"]
         assert params["applicationName"] == "payments-api"
+        assert params["namespace"] == "payments-prod"
         assert params["ApplicationType"] == "dotnet"
         assert params["projectType"] == "webapi"
         assert params["dotNetVersion"] == "9.0.x"
         assert params["deployAKS"] is True
         assert params["deployAppService"] is False
+        assert params["deploymentStrategy"] == "rolling"
+        assert params["imageName"] == "$(Build.Repository.Name)"
+        assert params["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
         assert "appType" not in params
+
+    def test_pipeline_dotnet_app_path_remove_prefixo_api(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        ctx = {**base_ctx, "app_name": "api-authentication"}
+        bundle = build_bundle(app_type=AppType.API, **ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
+        params = yaml.safe_load(pipeline.content)["extends"]["parameters"]
+        assert params["pathApiManagementService"] == "authentication"
+        assert params["pathAutomation"] == "authentication"
 
     def test_pipeline_default_para_linguagem_nao_dotnet(
         self, base_ctx: dict[str, object]
@@ -178,15 +222,19 @@ class TestRenderedContent:
         assert parsed["extends"]["parameters"]["appType"] == "api"
         assert parsed["extends"]["parameters"]["exposeExternal"] is False
 
-    def test_pipeline_usa_template_default(self, base_ctx: dict[str, object]) -> None:
-        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+    def test_pipeline_default_usa_template_default(self, base_ctx: dict[str, object]) -> None:
+        # _default (linguagem nao-dotnet) referencia o template por @devops-templates
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.GO, **base_ctx  # type: ignore[arg-type]
+        )
         pipeline = next(f for f in bundle.app_repo_files if f.path == "azure-pipelines.yaml")
         parsed = yaml.safe_load(pipeline.content)
         assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@devops-templates"
 
-    def test_pipeline_usa_template_informado(self, base_ctx: dict[str, object]) -> None:
+    def test_pipeline_default_usa_template_informado(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(
             app_type=AppType.API,
+            language=Language.GO,
             pipeline_template_path="pipelines/go-k8s-app.yaml",
             **base_ctx,  # type: ignore[arg-type]
         )

@@ -29,8 +29,11 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **247 testes**, `mypy --strict` limpo. O repo do Helm e configuravel e
-separado do repo de templates (`DEVOPS_HELM_REPO_URL` + `DEVOPS_HELM_REPO_BRANCH`, default `main`).
+MVP/POC completo e verde: **249 testes**, `mypy --strict` limpo. O template de pipeline `dotnet` segue
+o modelo real do time (name, trigger develop/release/hotfix/feature, resources templates+manifests por
+branch, pool, variable groups, params com deploymentStrategy/image*; `path*` derivado do app_name sem
+prefixo `api-`). Testes sao hermeticos (`tests/conftest.py` desabilita a leitura do `.env`). O repo do
+Helm e configuravel e separado do repo de templates (`DEVOPS_HELM_REPO_URL` + `DEVOPS_HELM_REPO_BRANCH`, default `main`).
 `validate_repo_url` aceita
 os formatos `dev.azure.com/<org>/...` e o legado `<org>.visualstudio.com/<projeto>/_git/<repo>`
 (org = subdominio). A allowlist `AZDO_ORG` compara com a org extraida da URL.
