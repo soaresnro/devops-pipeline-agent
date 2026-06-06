@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     devops_template_node: str | None = None
     devops_template_python: str | None = None
     devops_template_go: str | None = None
-    # Ambientes para os quais gerar environments/<env>/<app>/values.yaml (override por env).
+    # Ambientes para os quais gerar helm/environments/<env>/<app>/values.yaml (override por env).
     devops_environments: str = "dev,qa,uat,prod"
     # Emite `language` em extends.parameters da pipeline. So ative apos a tag do
     # devops-templates (DEVOPS_TEMPLATES_TAG) declarar esse parametro, senao a

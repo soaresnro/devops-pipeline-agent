@@ -154,22 +154,22 @@ class TestEnvironments:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         paths = set(bundle.all_helm_paths)
         for env in ("dev", "qa", "uat", "prod"):
-            assert f"environments/{env}/payments-api/values.yaml" in paths
+            assert f"helm/environments/{env}/payments-api/values.yaml" in paths
 
     def test_environments_customizado(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(
             app_type=AppType.API, environments=["dev", "prod"], **base_ctx  # type: ignore[arg-type]
         )
         paths = set(bundle.all_helm_paths)
-        assert "environments/dev/payments-api/values.yaml" in paths
-        assert "environments/prod/payments-api/values.yaml" in paths
-        assert "environments/qa/payments-api/values.yaml" not in paths
+        assert "helm/environments/dev/payments-api/values.yaml" in paths
+        assert "helm/environments/prod/payments-api/values.yaml" in paths
+        assert "helm/environments/qa/payments-api/values.yaml" not in paths
 
     def test_override_microservice_skeleton(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         ev = next(
             f for f in bundle.helm_chart_files
-            if f.path == "environments/prod/payments-api/values.yaml"
+            if f.path == "helm/environments/prod/payments-api/values.yaml"
         )
         mc = yaml.safe_load(ev.content)["microservice-chart"]
         # registry por ambiente + tag placeholder substituida pela pipeline
@@ -184,7 +184,7 @@ class TestEnvironments:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
         ev = next(
             f for f in bundle.helm_chart_files
-            if f.path == "environments/dev/payments-api/values.yaml"
+            if f.path == "helm/environments/dev/payments-api/values.yaml"
         )
         wc = yaml.safe_load(ev.content)["worker-chart"]
         assert wc["image"]["repository"] == "acraksdeveastus.azurecr.io/payments-api"

@@ -59,7 +59,7 @@ pipeline e por stack (`templates/pipeline/<stack>/azure-pipelines.yaml.j2`); `do
 real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false; versao
 perguntada no fluxo, default 8.0.x); node/python/go/web seguem no `_default` generico ate recebermos
 os templates reais. (PR2) o Helm passou a ser gerado em `helm/apps/<app>` + override por ambiente em
-`environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`); os manifests nao fixam
+`helm/environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`); os manifests nao fixam
 mais `metadata.namespace` (o `helm -n <ns>-<env>` do template decide). Falta, conforme os templates
 reais de node/python/go chegarem, criar os respectivos `templates/pipeline/<stack>/`. Publicado no GitHub
 em `https://github.com/soaresnro/devops-pipeline-agent` (licenca MIT).

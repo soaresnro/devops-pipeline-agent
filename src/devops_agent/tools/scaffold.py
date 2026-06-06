@@ -307,7 +307,9 @@ def _render_basechart_chart(
     for env in environments:
         env_values = _render_template(f"environments/{kind}/values.yaml.j2", {**ctx, "env": env})
         files.append(
-            ScaffoldedFile(path=f"environments/{env}/{app_name}/values.yaml", content=env_values)
+            ScaffoldedFile(
+                path=f"helm/environments/{env}/{app_name}/values.yaml", content=env_values
+            )
         )
     files.sort(key=lambda f: f.path)
     return files
@@ -343,7 +345,9 @@ def _render_selfcontained_chart(
     for env in environments:
         env_values = _render_template("environments/values.yaml.j2", {**context, "env": env})
         files.append(
-            ScaffoldedFile(path=f"environments/{env}/{app_name}/values.yaml", content=env_values)
+            ScaffoldedFile(
+                path=f"helm/environments/{env}/{app_name}/values.yaml", content=env_values
+            )
         )
 
     files.sort(key=lambda f: f.path)
