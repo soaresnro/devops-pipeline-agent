@@ -29,7 +29,12 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **262 testes**, `mypy --strict` limpo. Os Dockerfiles sao runtime-only
+MVP/POC completo e verde: **261 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
+(AksHelmCharts): api/web/worker geram uma chart FINA que depende de uma base chart compartilhada
+(microservice-chart / worker-chart, em AksHelmBaseCharts via file://), com values aninhados sob a
+chave da base chart e override por ambiente skeleton (image `acraks<env>eastus`, tag `__imageTag__`,
+ingresses/serviceAccount/workloadIdentity/env placeholders). cronjob continua self-contained.
+Os Dockerfiles sao runtime-only
 (modelo do time): sem build stage, COPY dos artefatos publicados pela pipeline, Alpine + tzdata/ca-certs
 + timezone America/Sao_Paulo + HEALTHCHECK /health (api). Para dotnet, o fluxo pergunta versao E
 assembly de entrada (.dll, default {app_name}.dll). O template de pipeline `dotnet` segue

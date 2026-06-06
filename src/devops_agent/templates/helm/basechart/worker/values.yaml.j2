@@ -1,0 +1,25 @@
+# Values base de {{ app_name }} ({{ app_type }}).
+# A renderizacao vem da base chart worker-chart; aqui apenas a configuramos.
+# Overrides por ambiente em environments/<env>/{{ app_name }}/values.yaml.
+worker-chart:
+  strategy:
+    type: Recreate
+
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+
+  replicaCount: 1
+
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 2
+    cpu:
+      targetAverageUtilization: 80
+    memory:
+      targetAverageUtilization: 80

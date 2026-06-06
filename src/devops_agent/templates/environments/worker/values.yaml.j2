@@ -1,0 +1,18 @@
+# Override de {{ app_name }} para o ambiente {{ env }} (aninhado sob worker-chart).
+# Skeleton - ATUALIZE clientId da workload identity e env conforme o ambiente.
+worker-chart:
+  image:
+    repository: "acraks{{ env }}eastus.azurecr.io/{{ app_name }}"  # ATUALIZE se o nome da imagem diferir
+    pullPolicy: IfNotPresent
+    tag: "__imageTag__"  # substituido pela pipeline
+
+  serviceAccount:
+    create: true
+    name: sa-{{ app_name }}
+
+  workloadIdentity:
+    clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
+
+  environment: {{ env }}
+
+  env: {}  # ATUALIZE com as variaveis da aplicacao

@@ -1,0 +1,33 @@
+# Override de {{ app_name }} para o ambiente {{ env }} (aninhado sob microservice-chart).
+# Skeleton - ATUALIZE hosts, secrets, clientId da workload identity e env conforme o ambiente.
+microservice-chart:
+  image:
+    repository: "acraks{{ env }}eastus.azurecr.io/{{ app_name }}"  # ATUALIZE se o nome da imagem diferir
+    pullPolicy: IfNotPresent
+    tag: "__imageTag__"  # substituido pela pipeline
+
+  ingresses:
+    - name: {{ app_name }}
+      enabled: true
+      className: private-nginx
+      tls:
+        - hosts:
+            - {{ app_name }}.{{ env }}.epharma.com.br  # ATUALIZE com o host real
+          secretName: cert-wildcard-tls  # ATUALIZE
+      rules:
+        - host: {{ app_name }}.{{ env }}.epharma.com.br
+          paths:
+            - path: /
+              pathType: Prefix
+              port: 8080
+
+  serviceAccount:
+    create: true
+    name: sa-{{ app_name }}
+
+  workloadIdentity:
+    clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
+
+  environment: {{ env }}
+
+  env: {}  # ATUALIZE com as variaveis da aplicacao

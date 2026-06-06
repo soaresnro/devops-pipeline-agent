@@ -1,0 +1,11 @@
+apiVersion: v2
+name: {{ app_name }}
+description: {{ app_name }} ({{ app_type }})
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: {{ base_chart_name }}
+    version: "{{ base_chart_version }}"
+    repository: "file://../../../../AksHelmBaseCharts/base-charts/{{ base_chart_name }}"
