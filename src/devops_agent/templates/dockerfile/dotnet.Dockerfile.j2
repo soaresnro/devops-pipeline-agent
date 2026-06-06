@@ -1,44 +1,42 @@
 # syntax=docker/dockerfile:1.7
-# Dockerfile .NET gerado para {{ app_name }} ({{ app_type }})
-# Ajuste a base image e o build conforme a stack real da sua aplicacao.
-
+# Dockerfile .NET (runtime-only) gerado para {{ app_name }} ({{ app_type }})
+# A pipeline publica a aplicacao e usa a saida como contexto do build (COPY . .).
 {% if app_type == 'api' -%}
-ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:{{ dotnet_image_tag }}-alpine AS runtime
 {%- else -%}
-ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:8.0-alpine
+FROM mcr.microsoft.com/dotnet/runtime:{{ dotnet_image_tag }}-alpine AS runtime
 {%- endif %}
-ARG BUILD_IMAGE=mcr.microsoft.com/dotnet/sdk:8.0-alpine
 
-FROM ${BUILD_IMAGE} AS build
-WORKDIR /src
-COPY . .
-RUN dotnet publish -c Release -o /app --no-self-contained
-
-FROM ${RUNTIME_IMAGE} AS runtime
 WORKDIR /app
-COPY --from=build /app .
-
-RUN addgroup -S app && adduser -S app -G app
-USER app
-
-{% if app_type == 'api' -%}
-ENV ASPNETCORE_URLS=http://+:8080 \
-    DOTNET_RUNNING_IN_CONTAINER=true
-
+{% if app_type == 'api' %}
 EXPOSE 8080
+{% endif %}
+# Dependencias basicas (Alpine)
+RUN apk add --no-cache \
+    tzdata \
+    ca-certificates \
+    libc6-compat \
+    libstdc++ \
+    wget \
+    && update-ca-certificates
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://localhost:8080/healthz || exit 1
-{%- elif app_type == 'worker' -%}
+# Timezone
+ENV TZ=America/Sao_Paulo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+{% if app_type == 'api' %}
+# ASP.NET Core
+ENV ASPNETCORE_URLS=http://+:8080
+{% endif %}
 ENV DOTNET_RUNNING_IN_CONTAINER=true
 
-# Workers nao expoem porta. Probes sao feitos via comando.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD pgrep -f "{{ app_name }}" > /dev/null || exit 1
-{%- else -%}
-ENV DOTNET_RUNNING_IN_CONTAINER=true
+# Logs
+ENV Logging__LogLevel__Default=Warning \
+    Logging__LogLevel__Microsoft=Warning \
+    Logging__LogLevel__Microsoft.Hosting.Lifetime=Information
 
-# CronJobs rodam ate concluir e saem; sem porta exposta e sem probe de container.
-{%- endif %}
-
-ENTRYPOINT ["dotnet", "{{ app_name }}.dll"]
+COPY . .
+{% if app_type == 'api' %}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+{% endif %}
+ENTRYPOINT ["dotnet", "{{ dotnet_entrypoint }}"]

@@ -193,7 +193,7 @@ class TestSetLanguageTool:
 
 
 class TestSetDotnetVersionTool:
-    def test_define_versao_e_vai_para_validate(
+    def test_define_versao_e_vai_para_entrypoint(
         self, settings: Settings, session: SessionState
     ) -> None:
         session.language = Language.DOTNET
@@ -202,7 +202,7 @@ class TestSetDotnetVersionTool:
         out = dispatch(call, session, settings)
         assert out["ok"] is True
         assert session.dotnet_version == "8.0.x"
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_DOTNET_ENTRYPOINT
 
     def test_recusa_se_nao_for_dotnet(
         self, settings: Settings, session: SessionState
@@ -233,6 +233,32 @@ class TestSetDotnetVersionTool:
         out = dispatch(call, session, settings)
         assert out["ok"] is False
         assert out["error_code"] == "language.wrong_phase"
+
+
+class TestSetDotnetEntrypointTool:
+    def test_define_entrypoint_e_vai_para_validate(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.language = Language.DOTNET
+        session.phase = Phase.ASK_DOTNET_ENTRYPOINT
+        call = ToolCall(
+            id="t1", name="set_dotnet_entrypoint", arguments={"entrypoint": "App.Api"}
+        )
+        out = dispatch(call, session, settings)
+        assert out["ok"] is True
+        assert session.dotnet_entrypoint == "App.Api.dll"
+        assert session.phase == Phase.VALIDATE
+
+    def test_recusa_se_nao_for_dotnet(
+        self, settings: Settings, session: SessionState
+    ) -> None:
+        session.language = Language.GO
+        call = ToolCall(
+            id="t1", name="set_dotnet_entrypoint", arguments={"entrypoint": "App.dll"}
+        )
+        out = dispatch(call, session, settings)
+        assert out["ok"] is False
+        assert out["error_code"] == "dotnet_entrypoint.not_dotnet"
 
 
 class TestProposeScaffold:

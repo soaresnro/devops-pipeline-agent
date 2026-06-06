@@ -15,6 +15,7 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_entrypoint,
     validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
@@ -40,6 +41,10 @@ _QUESTIONS = {
     Phase.ASK_SCHEDULE: "Qual o agendamento (cron) do CronJob? Ex.: '0 2 * * *' ou @daily.",
     Phase.ASK_LANGUAGE: "Nao consegui detectar a linguagem. Qual a linguagem da aplicacao?",
     Phase.ASK_DOTNET_VERSION: "Qual a versao do .NET? Ex.: 8.0.x (enter usa o default 8.0.x).",
+    Phase.ASK_DOTNET_ENTRYPOINT: (
+        "Qual o assembly de entrada (.dll)? Ex.: ePharma.Authentication.Services.dll "
+        "(enter usa {app_name}.dll)."
+    ),
 }
 
 
@@ -204,11 +209,10 @@ def handle_language(session: SessionState, user_input: str) -> StepResult:
 def handle_dotnet_version(session: SessionState, user_input: str) -> StepResult:
     # Entrada vazia mantem o default do scaffold (session.dotnet_version permanece None).
     if not user_input.strip():
-        session.phase = Phase.VALIDATE
+        session.phase = Phase.ASK_DOTNET_ENTRYPOINT
         return StepResult(
-            next_phase=Phase.VALIDATE,
-            message_to_user="Mantendo a versao padrao do .NET.\nValidando inputs...",
-            awaits_input=False,
+            next_phase=Phase.ASK_DOTNET_ENTRYPOINT,
+            message_to_user="Mantendo a versao padrao do .NET.\n" + _QUESTIONS[Phase.ASK_DOTNET_ENTRYPOINT],
         )
 
     result = validate_dotnet_version(user_input)
@@ -220,10 +224,36 @@ def handle_dotnet_version(session: SessionState, user_input: str) -> StepResult:
         )
 
     session.dotnet_version = result.data
+    session.phase = Phase.ASK_DOTNET_ENTRYPOINT
+    return StepResult(
+        next_phase=Phase.ASK_DOTNET_ENTRYPOINT,
+        message_to_user=f"Versao .NET: {result.data}\n" + _QUESTIONS[Phase.ASK_DOTNET_ENTRYPOINT],
+    )
+
+
+def handle_dotnet_entrypoint(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia mantem o default do scaffold (app_name.dll).
+    if not user_input.strip():
+        session.phase = Phase.VALIDATE
+        return StepResult(
+            next_phase=Phase.VALIDATE,
+            message_to_user="Usando o assembly padrao.\nValidando inputs...",
+            awaits_input=False,
+        )
+
+    result = validate_dotnet_entrypoint(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_DOTNET_ENTRYPOINT,
+            message_to_user=result.error or "Assembly invalido.",
+            error=result.error,
+        )
+
+    session.dotnet_entrypoint = result.data
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
-        message_to_user=f"Versao .NET: {result.data}\nValidando inputs...",
+        message_to_user=f"Entrypoint: {result.data}\nValidando inputs...",
         awaits_input=False,
     )
 

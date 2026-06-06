@@ -67,7 +67,7 @@ _TYPE_DEFAULTS: dict[AppType, TypeDefaults] = {
     AppType.API: TypeDefaults(
         container_port=8080,
         service_port=80,
-        health_path="/healthz",
+        health_path="/health",
         replica_count=2,
         requests_cpu="250m",
         requests_memory="512Mi",
@@ -169,6 +169,7 @@ def _build_template_context(
     pipeline_pass_language: bool,
     pipeline_template_path: str,
     dotnet_version: str,
+    dotnet_entrypoint: str,
     devops_helm_repo_name: str,
     devops_helm_repo_branch: str,
 ) -> dict[str, object]:
@@ -183,6 +184,10 @@ def _build_template_context(
         "pipeline_pass_language": pipeline_pass_language,
         "pipeline_template_path": pipeline_template_path,
         "dotnet_version": dotnet_version,
+        # tag da base image .NET (ex.: 8.0) a partir da versao informada (8.0.x).
+        "dotnet_image_tag": dotnet_version.split(".")[0] + ".0",
+        # assembly de entrada; default app_name.dll quando nao informado.
+        "dotnet_entrypoint": dotnet_entrypoint or f"{app_name}.dll",
         "devops_helm_repo_name": devops_helm_repo_name,
         "devops_helm_repo_branch": devops_helm_repo_branch,
         "namespace": namespace,
@@ -281,6 +286,7 @@ def build_bundle(
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
+    dotnet_entrypoint: str = "",
     environments: list[str] | None = None,
     devops_helm_repo_name: str | None = None,
     devops_helm_repo_branch: str = "main",
@@ -300,6 +306,7 @@ def build_bundle(
         pipeline_pass_language=pipeline_pass_language,
         pipeline_template_path=pipeline_template_path,
         dotnet_version=dotnet_version,
+        dotnet_entrypoint=dotnet_entrypoint,
         devops_helm_repo_name=devops_helm_repo_name or devops_templates_repo_name,
         devops_helm_repo_branch=devops_helm_repo_branch,
     )
@@ -330,6 +337,7 @@ def dry_run(
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
+    dotnet_entrypoint: str = "",
     environments: list[str] | None = None,
     devops_helm_repo_name: str | None = None,
     devops_helm_repo_branch: str = "main",
@@ -351,6 +359,7 @@ def dry_run(
             pipeline_pass_language=pipeline_pass_language,
             pipeline_template_path=pipeline_template_path,
             dotnet_version=dotnet_version,
+            dotnet_entrypoint=dotnet_entrypoint,
             environments=environments,
             devops_helm_repo_name=devops_helm_repo_name,
             devops_helm_repo_branch=devops_helm_repo_branch,

@@ -9,11 +9,29 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_entrypoint,
     validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
 )
+
+
+class TestValidateDotnetEntrypoint:
+    def test_adiciona_dll_se_faltar(self) -> None:
+        r = validate_dotnet_entrypoint("ePharma.Authentication.Services")
+        assert r.ok
+        assert r.data == "ePharma.Authentication.Services.dll"
+
+    def test_mantem_dll_existente(self) -> None:
+        r = validate_dotnet_entrypoint("App.dll")
+        assert r.ok
+        assert r.data == "App.dll"
+
+    @pytest.mark.parametrize("entrada", ["", "  ", "nome com espaco", "x/y"])
+    def test_rejeita_invalidos(self, entrada: str) -> None:
+        r = validate_dotnet_entrypoint(entrada)
+        assert not r.ok
 
 
 class TestValidateDotnetVersion:

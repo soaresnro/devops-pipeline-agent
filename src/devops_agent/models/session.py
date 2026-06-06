@@ -22,6 +22,7 @@ class Phase(StrEnum):
     DETECT_LANGUAGE = "detect_language"
     ASK_LANGUAGE = "ask_language"
     ASK_DOTNET_VERSION = "ask_dotnet_version"
+    ASK_DOTNET_ENTRYPOINT = "ask_dotnet_entrypoint"
     VALIDATE = "validate"
     CONFIRM = "confirm"
     EXECUTE = "execute"
@@ -60,6 +61,7 @@ class SessionState(BaseModel):
     language_candidates: list[Language] = Field(default_factory=list)
     schedule: str | None = None  # cron do CronJob; None usa o default do scaffold
     dotnet_version: str | None = None  # versao .NET; None usa o default do scaffold
+    dotnet_entrypoint: str | None = None  # assembly de entrada; None usa app_name.dll
 
     confirmed: bool = False
     execution: ExecutionResult | None = None

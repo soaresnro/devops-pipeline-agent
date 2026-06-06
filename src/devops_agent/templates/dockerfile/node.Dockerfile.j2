@@ -1,38 +1,24 @@
 # syntax=docker/dockerfile:1.7
-# Dockerfile Node gerado para {{ app_name }} ({{ app_type }})
-# Ajuste a base image, o build e o comando de inicio conforme a stack real.
+# Dockerfile Node (runtime-only) gerado para {{ app_name }} ({{ app_type }})
+# A pipeline buildva (npm ci/build) e usa a saida como contexto do build (COPY . .).
+FROM node:20-alpine AS runtime
 
-ARG BUILD_IMAGE=node:20-alpine
-ARG RUNTIME_IMAGE=node:20-alpine
-
-FROM ${BUILD_IMAGE} AS build
-WORKDIR /src
-COPY package*.json ./
-RUN npm ci
-COPY . .
-# Se houver etapa de build (TypeScript/bundler), descomente:
-# RUN npm run build
-
-FROM ${RUNTIME_IMAGE} AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /src .
-
-RUN addgroup -S app && adduser -S app -G app
-USER app
-
-{% if app_type == 'api' -%}
+{% if app_type == 'api' %}
 EXPOSE 8080
+{% endif %}
+RUN apk add --no-cache tzdata ca-certificates wget && update-ca-certificates
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://localhost:8080/healthz || exit 1
-{%- elif app_type == 'worker' -%}
-# Workers nao expoem porta. Probe via processo.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD pgrep -f node > /dev/null || exit 1
-{%- else -%}
-# CronJobs rodam ate concluir e saem; sem porta exposta e sem probe de container.
-{%- endif %}
+# Timezone
+ENV TZ=America/Sao_Paulo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Ajuste para o entrypoint real da sua aplicacao (ex.: dist/index.js).
+ENV NODE_ENV=production
+
+COPY . .
+{% if app_type == 'api' %}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+{% endif %}
+# Ajuste para o entrypoint real da aplicacao (ex.: dist/index.js).
 CMD ["node", "server.js"]
