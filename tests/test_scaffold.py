@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import io
+import tarfile
+
 import pytest
 import yaml
 
@@ -89,6 +93,60 @@ class TestBuildBundle:
         assert f"{chart_root}/templates/cronjob.yaml" in paths
         assert f"{chart_root}/templates/_helpers.tpl" in paths
         assert f"{chart_root}/templates/serviceaccount.yaml" in paths
+
+
+class TestVendoredBaseChart:
+    """A chart fina vendoriza a base chart como charts/<base>-<ver>.tgz + Chart.lock,
+    igual ao modelo do time (AksHelmCharts), para que `helm` ache as dependencias."""
+
+    @pytest.mark.parametrize(
+        ("app_type", "tgz"),
+        [
+            (AppType.API, "microservice-chart-0.4.4.tgz"),
+            (AppType.WEB, "microservice-chart-0.4.4.tgz"),
+            (AppType.WORKER, "worker-chart-1.0.0.tgz"),
+        ],
+    )
+    def test_emite_tgz_e_chart_lock(
+        self, app_type: AppType, tgz: str, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
+        paths = set(bundle.all_helm_paths)
+        chart_root = "helm/apps/payments-api"
+        assert f"{chart_root}/charts/{tgz}" in paths
+        assert f"{chart_root}/Chart.lock" in paths
+
+    def test_tgz_e_binario_e_contem_templates_da_base(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        tgz = next(f for f in bundle.helm_chart_files if f.path.endswith(".tgz"))
+        assert tgz.is_binary
+        assert tgz.content == ""
+        raw = base64.b64decode(tgz.binary_b64 or "")
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+            names = tar.getnames()
+        # o .tgz embala os manifests reais da base chart (deployment/service/ingress)
+        assert "microservice-chart/templates/deployment.yaml" in names
+        assert "microservice-chart/templates/service.yaml" in names
+        assert "microservice-chart/templates/ingress.yaml" in names
+
+    def test_chart_lock_casa_com_a_dependency_do_chart_yaml(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        lock = next(f for f in bundle.helm_chart_files if f.path.endswith("/Chart.lock"))
+        chart = next(f for f in bundle.helm_chart_files if f.path.endswith("/Chart.yaml"))
+        lock_dep = yaml.safe_load(lock.content)["dependencies"][0]
+        chart_dep = yaml.safe_load(chart.content)["dependencies"][0]
+        assert lock_dep["name"] == chart_dep["name"] == "worker-chart"
+        assert lock_dep["version"] == chart_dep["version"] == "1.0.0"
+        assert yaml.safe_load(lock.content)["digest"].startswith("sha256:")
+
+    def test_cronjob_nao_vendoriza_tgz(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        assert not any(f.path.endswith(".tgz") for f in bundle.helm_chart_files)
+        assert not any(f.path.endswith("/Chart.lock") for f in bundle.helm_chart_files)
 
 
 class TestEnvironments:

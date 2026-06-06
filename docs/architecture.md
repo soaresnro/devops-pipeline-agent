@@ -160,6 +160,14 @@ compartilhada (microservice-chart/worker-chart, em AksHelmBaseCharts) — sem te
 ficam aninhados sob a chave da base chart. cronjob mantem o chart self-contained. A tabela abaixo descreve
 as caracteristicas conceituais por tipo (hoje materializadas pela base chart).
 
+A chart fina **vendoriza a base chart** como o time faz: alem de `Chart.yaml`/`values.yaml`, o agente emite
+`charts/<base>-<ver>.tgz` (o pacote real da base chart, com deployment/service/ingress/hpa/etc.) e o
+`Chart.lock` correspondente. Esse par e copiado verbatim do repo modelo e fica vendorizado em
+`templates/helm/basechart/_vendor/`; o digest do lock casa com o bloco `dependencies` do `Chart.yaml`
+emitido, entao `helm` resolve a dependencia sem precisar de `helm dependency build`/acesso ao
+AksHelmBaseCharts no momento do deploy. O `.tgz` e binario: `ScaffoldedFile` carrega bytes em
+`binary_b64` e `write_files` grava com `write_bytes`.
+
 **Decisao critica:** referencia por tag evita que mudanca no template quebre pipelines em producao sem aviso.
 
 ### Variacoes API/Worker/Web

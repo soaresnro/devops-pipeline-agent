@@ -40,10 +40,10 @@ dev = [
 devops-agent = "devops_agent.cli:app"
 
 [tool.hatch.build.targets.wheel]
+# `packages` ja inclui tudo sob src/devops_agent (templates .j2/.tpl e os assets
+# vendorizados .tgz/.lock). NAO usar force-include de templates aqui: duplicaria os
+# arquivos e o build do wheel falha com "second file ... at the same path".
 packages = ["src/devops_agent"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/devops_agent/templates" = "devops_agent/templates"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

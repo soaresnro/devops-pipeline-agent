@@ -158,6 +158,25 @@ class TestGitOps:
             verify_repo, "ls-tree", "-r", "--name-only", "HEAD"
         )
 
+    def test_write_files_grava_binario_intacto(self, fake_remote: Path) -> None:
+        import base64
+
+        payload = bytes(range(256)) * 4  # bytes nao-UTF8, exercita o ramo binario
+        files = [
+            ScaffoldedFile(path="texto.txt", content="ola\n"),
+            ScaffoldedFile(
+                path="charts/base.tgz",
+                binary_b64=base64.b64encode(payload).decode("ascii"),
+            ),
+        ]
+        with temp_workspace() as ws:
+            cr = clone_shallow(ws, key="app", clone_url=fake_remote.as_uri(), branch="main")
+            assert cr.ok and cr.data is not None
+            wr = write_files(cr.data, files)
+            assert wr.ok and wr.data == 2
+            assert (cr.data / "charts" / "base.tgz").read_bytes() == payload
+            assert (cr.data / "texto.txt").read_text(encoding="utf-8") == "ola\n"
+
     def test_commit_sem_mudancas_falha(self, fake_remote: Path) -> None:
         with temp_workspace() as ws:
             cr = clone_shallow(
