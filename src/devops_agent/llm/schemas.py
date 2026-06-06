@@ -180,6 +180,26 @@ def tools_for_agent() -> list[dict[str, Any]]:
             },
         ),
         _tool(
+            name="set_dotnet_entrypoint",
+            description=(
+                "Define o assembly de entrada (.dll) do .NET, que NAO deriva do nome do "
+                "repo (ex.: ePharma.Authentication.Services.dll). Chame apos set_dotnet_version "
+                "e antes de propose_scaffold. Se o usuario nao informar, pode omitir e o default "
+                "{app_name}.dll sera usado."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "entrypoint": {
+                        "type": "string",
+                        "description": "Assembly de entrada (ex.: ePharma.Authentication.Services.dll).",
+                    }
+                },
+                "required": ["entrypoint"],
+                "additionalProperties": False,
+            },
+        ),
+        _tool(
             name="propose_scaffold",
             description=(
                 "Renderiza em memoria todos os arquivos que serao criados (Dockerfile, "

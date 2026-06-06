@@ -23,6 +23,7 @@ from devops_agent.tools.validation import (
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
+    validate_dotnet_entrypoint,
     validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
@@ -61,6 +62,10 @@ class _ScheduleArgs(BaseModel):
 
 class _DotNetVersionArgs(BaseModel):
     version: str
+
+
+class _DotNetEntrypointArgs(BaseModel):
+    entrypoint: str
 
 
 class _ExecuteArgs(BaseModel):
@@ -269,8 +274,28 @@ def _handle_set_dotnet_version(
         return _fail(r.error or "versao invalida", r.error_code)
 
     session.dotnet_version = r.data
-    session.phase = Phase.VALIDATE
+    session.phase = Phase.ASK_DOTNET_ENTRYPOINT
     return _ok({"dotnet_version": r.data})
+
+
+def _handle_set_dotnet_entrypoint(
+    args: dict[str, Any], session: SessionState, settings: Settings
+) -> dict[str, Any]:
+    try:
+        parsed = _DotNetEntrypointArgs.model_validate(args)
+    except ValidationError as exc:
+        return _fail(f"argumentos invalidos: {exc.errors()[0]['msg']}", "args.invalid")
+
+    if session.language != Language.DOTNET:
+        return _fail("set_dotnet_entrypoint so se aplica a stack dotnet.", "dotnet_entrypoint.not_dotnet")
+
+    r = validate_dotnet_entrypoint(parsed.entrypoint)
+    if not r.ok or r.data is None:
+        return _fail(r.error or "entrypoint invalido", r.error_code)
+
+    session.dotnet_entrypoint = r.data
+    session.phase = Phase.VALIDATE
+    return _ok({"dotnet_entrypoint": r.data})
 
 
 def _handle_propose_scaffold(
@@ -352,6 +377,7 @@ _HANDLERS: dict[str, Handler] = {
     "detect_language": _handle_detect_language,
     "set_language": _handle_set_language,
     "set_dotnet_version": _handle_set_dotnet_version,
+    "set_dotnet_entrypoint": _handle_set_dotnet_entrypoint,
     "propose_scaffold": _handle_propose_scaffold,
     "execute_scaffold": _handle_execute_scaffold,
     "abort_session": _handle_abort_session,

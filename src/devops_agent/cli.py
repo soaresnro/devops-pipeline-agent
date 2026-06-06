@@ -155,6 +155,16 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_DOTNET_ENTRYPOINT:
+        _print_agent(sm.question_for(Phase.ASK_DOTNET_ENTRYPOINT))
+        raw = _ask(f"(enter para {session.app_name}.dll) >")
+        step = sm.handle_dotnet_entrypoint(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.VALIDATE:
         result = exec_mod.prepare_dry_run(session, settings)  # type: ignore[arg-type]
         if not result.ok or result.data is None:

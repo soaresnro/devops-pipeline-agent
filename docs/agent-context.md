@@ -29,7 +29,10 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **249 testes**, `mypy --strict` limpo. O template de pipeline `dotnet` segue
+MVP/POC completo e verde: **262 testes**, `mypy --strict` limpo. Os Dockerfiles sao runtime-only
+(modelo do time): sem build stage, COPY dos artefatos publicados pela pipeline, Alpine + tzdata/ca-certs
++ timezone America/Sao_Paulo + HEALTHCHECK /health (api). Para dotnet, o fluxo pergunta versao E
+assembly de entrada (.dll, default {app_name}.dll). O template de pipeline `dotnet` segue
 o modelo real do time (name, trigger develop/release/hotfix/feature, resources templates+manifests por
 branch, pool, variable groups, params com deploymentStrategy/image*; `path*` derivado do app_name sem
 prefixo `api-`). Testes sao hermeticos (`tests/conftest.py` desabilita a leitura do `.env`). O repo do

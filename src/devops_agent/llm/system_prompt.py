@@ -34,7 +34,8 @@ Apos validar o tipo (exceto quando for 'web') - e, para cronjob, apos o agendame
 chame `detect_language` para inferir a linguagem da aplicacao.
 
 Se a linguagem for 'dotnet', pergunte a versao do .NET (ex.: 8.0.x; enter usa o default
-8.0.x) e chame `set_dotnet_version` antes de seguir. Se a deteccao for conclusiva, siga em frente. Se nao for
+8.0.x) e chame `set_dotnet_version`; em seguida pergunte o assembly de entrada (.dll, ex.:
+ePharma.Authentication.Services.dll; enter usa {app_name}.dll) e chame `set_dotnet_entrypoint`. Se a deteccao for conclusiva, siga em frente. Se nao for
 (is_conclusive=false), pergunte ao usuario qual a linguagem - citando os 'candidates'
 se houver - e chame `set_language` com a resposta. Para o tipo 'web' nao detecte nem
 pergunte a linguagem.

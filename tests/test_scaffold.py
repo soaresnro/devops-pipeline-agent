@@ -291,7 +291,7 @@ class TestRenderedContent:
         parsed = yaml.safe_load(values.content)
         assert parsed["service"]["port"] == 80
         assert parsed["service"]["targetPort"] == 8080
-        assert parsed["probes"]["liveness"]["httpGet"]["path"] == "/healthz"
+        assert parsed["probes"]["liveness"]["httpGet"]["path"] == "/health"
         assert parsed["ingress"]["enabled"] is False
         assert parsed["autoscaling"]["enabled"] is True
 
@@ -404,10 +404,10 @@ class TestLanguageDockerfile:
     @pytest.mark.parametrize(
         ("language", "marker"),
         [
-            (Language.DOTNET, "dotnet publish"),
-            (Language.NODE, "npm ci"),
-            (Language.PYTHON, "pip install"),
-            (Language.GO, "go build"),
+            (Language.DOTNET, "dotnet/aspnet:"),
+            (Language.NODE, "node:20-alpine"),
+            (Language.PYTHON, "python:3.12-alpine"),
+            (Language.GO, "alpine:3.20"),
         ],
     )
     def test_api_usa_template_da_linguagem(
@@ -418,6 +418,9 @@ class TestLanguageDockerfile:
         assert marker in df.content
         # API sempre expoe porta, independente da linguagem
         assert "EXPOSE 8080" in df.content
+        # runtime-only: a imagem so roda o artefato (sem build stage)
+        assert "COPY . ." in df.content
+        assert "America/Sao_Paulo" in df.content
 
     @pytest.mark.parametrize("language", list(Language))
     def test_web_ignora_linguagem_e_usa_nginx(
@@ -439,6 +442,29 @@ class TestLanguageDockerfile:
         assert "dotnet/aspnet" in api_df
         assert "dotnet/runtime" in worker_df
         assert "dotnet/aspnet" not in worker_df
+
+    def test_dotnet_image_tag_da_versao(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.DOTNET, dotnet_version="9.0.x", **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.app_repo_files if f.path == "Dockerfile").content
+        assert "dotnet/aspnet:9.0-alpine" in df
+
+    def test_dotnet_entrypoint_informado_e_default(self, base_ctx: dict[str, object]) -> None:
+        # build_bundle usa o entrypoint como recebido (a normalizacao .dll e da validacao)
+        informado = build_bundle(
+            app_type=AppType.API,
+            language=Language.DOTNET,
+            dotnet_entrypoint="ePharma.Auth.Services.dll",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        df_info = next(f for f in informado.app_repo_files if f.path == "Dockerfile").content
+        assert 'ENTRYPOINT ["dotnet", "ePharma.Auth.Services.dll"]' in df_info
+
+        # sem entrypoint -> default {app_name}.dll
+        default = build_bundle(app_type=AppType.API, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        df_def = next(f for f in default.app_repo_files if f.path == "Dockerfile").content
+        assert 'ENTRYPOINT ["dotnet", "payments-api.dll"]' in df_def
 
     def test_node_worker_sem_expose(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, language=Language.NODE, **base_ctx)  # type: ignore[arg-type]

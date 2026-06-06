@@ -97,19 +97,19 @@ class TestHandleSchedule:
 
 
 class TestHandleDotnetVersion:
-    def test_versao_valida_vai_para_validate(self, session: SessionState) -> None:
+    def test_versao_valida_vai_para_entrypoint(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_VERSION
         step = sm.handle_dotnet_version(session, "9.0.x")
         assert not step.error
         assert session.dotnet_version == "9.0.x"
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_DOTNET_ENTRYPOINT
 
     def test_vazio_mantem_default_e_avanca(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_VERSION
         step = sm.handle_dotnet_version(session, "  ")
         assert not step.error
         assert session.dotnet_version is None  # default aplicado no scaffold
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_DOTNET_ENTRYPOINT
 
     def test_invalida_permanece_em_ask_dotnet_version(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_VERSION
@@ -117,3 +117,26 @@ class TestHandleDotnetVersion:
         assert step.error
         assert step.next_phase == Phase.ASK_DOTNET_VERSION
         assert session.dotnet_version is None
+
+
+class TestHandleDotnetEntrypoint:
+    def test_entrypoint_valido_vai_para_validate(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_ENTRYPOINT
+        step = sm.handle_dotnet_entrypoint(session, "ePharma.Auth.Services")
+        assert not step.error
+        assert session.dotnet_entrypoint == "ePharma.Auth.Services.dll"  # .dll adicionado
+        assert session.phase == Phase.VALIDATE
+
+    def test_vazio_mantem_default_e_valida(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_ENTRYPOINT
+        step = sm.handle_dotnet_entrypoint(session, "")
+        assert not step.error
+        assert session.dotnet_entrypoint is None  # default app_name.dll no scaffold
+        assert session.phase == Phase.VALIDATE
+
+    def test_invalido_permanece(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_DOTNET_ENTRYPOINT
+        step = sm.handle_dotnet_entrypoint(session, "nome invalido!")
+        assert step.error
+        assert step.next_phase == Phase.ASK_DOTNET_ENTRYPOINT
+        assert session.dotnet_entrypoint is None

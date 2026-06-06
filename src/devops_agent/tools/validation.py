@@ -84,6 +84,9 @@ _CRON_FIELD_RE = re.compile(r"^[\d*/,\-]+$")
 _DOTNET_VERSION_RE = re.compile(r"^(6|7|8|9)\.0\.(x|\d{1,3})$")
 _DEFAULT_DOTNET_VERSION = "8.0.x"
 
+# Assembly de entrada .NET (ex.: ePharma.Authentication.Services[.dll]).
+_DOTNET_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 
 def validate_repo_url(
     url: str,
@@ -236,6 +239,23 @@ def validate_dotnet_version(value: str) -> ToolResult[str]:
             code="dotnet_version.invalid",
         )
     return ToolResult.success(version)
+
+
+def validate_dotnet_entrypoint(value: str) -> ToolResult[str]:
+    """Valida o assembly de entrada .NET (ex.: ePharma.Auth.dll). Adiciona .dll se faltar."""
+    if not value or not value.strip():
+        return ToolResult.failure("Entrypoint nao informado.", code="dotnet_entrypoint.empty")
+
+    name = value.strip()
+    if not _DOTNET_ENTRYPOINT_RE.match(name):
+        return ToolResult.failure(
+            "Nome de assembly invalido. Use letras, digitos e os caracteres . _ - "
+            "(ex.: ePharma.Authentication.Services.dll).",
+            code="dotnet_entrypoint.invalid",
+        )
+    if not name.lower().endswith(".dll"):
+        name += ".dll"
+    return ToolResult.success(name)
 
 
 def validate_branch_name(branch: str) -> ToolResult[str]:

@@ -47,6 +47,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "api",
             "dotnet",  # responde a pergunta de linguagem (deteccao inconclusiva sem PAT)
             "",  # versao .NET: enter mantem o default 8.0.x
+            "",  # entrypoint .NET: enter usa o default app_name.dll
             "nao",
             "",
         ]
@@ -108,6 +109,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "api",
             "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
             "",  # versao .NET: enter mantem o default
+            "",  # entrypoint .NET: enter usa o default
             "nao",
             "",
         ]
