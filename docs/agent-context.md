@@ -29,11 +29,19 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-06-05)
 
-MVP/POC completo e verde: **261 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
+MVP/POC completo e verde: **268 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
 (AksHelmCharts): api/web/worker geram uma chart FINA que depende de uma base chart compartilhada
 (microservice-chart / worker-chart, em AksHelmBaseCharts via file://), com values aninhados sob a
 chave da base chart e override por ambiente skeleton (image `acraks<env>eastus`, tag `__imageTag__`,
 ingresses/serviceAccount/workloadIdentity/env placeholders). cronjob continua self-contained.
+A chart fina **vendoriza a base chart**: alem de `Chart.yaml`/`values.yaml`, emite
+`charts/<base>-<ver>.tgz` (o pacote real da base chart, com deployment/service/ingress/etc.) e o
+`Chart.lock` correspondente — par copiado verbatim do repo modelo, com digest do lock casando com o
+bloco `dependencies` do `Chart.yaml`. Assim o `helm` resolve a dependencia sem `helm dependency build`.
+Os assets ficam vendorizados em `templates/helm/basechart/_vendor/` e sao emitidos como arquivo
+binario (`ScaffoldedFile.binary_b64`; `write_files` grava bytes). O wheel passou a empacotar tudo via
+`packages = ["src/devops_agent"]` (removido o `force-include` de templates, que duplicava arquivos e
+quebrava o build do wheel).
 Os Dockerfiles sao runtime-only
 (modelo do time): sem build stage, COPY dos artefatos publicados pela pipeline, Alpine + tzdata/ca-certs
 + timezone America/Sao_Paulo + HEALTHCHECK /health (api). Para dotnet, o fluxo pergunta versao E

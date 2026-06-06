@@ -6,6 +6,7 @@ Ele apenas decide *quando* chamar render/dry_run e com quais parametros tipados.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -16,10 +17,20 @@ from devops_agent.models import AppType, Language, ToolResult
 
 
 class ScaffoldedFile(BaseModel):
-    """Um arquivo a ser escrito em um repositorio."""
+    """Um arquivo a ser escrito em um repositorio.
+
+    Texto por padrao (`content`). Para artefatos binarios (ex.: o `.tgz` da base
+    chart vendorizada), `binary_b64` carrega os bytes em base64 e `content` fica
+    vazio; `write_files` decide entre `write_text`/`write_bytes` por `is_binary`.
+    """
 
     path: str
-    content: str
+    content: str = ""
+    binary_b64: str | None = None
+
+    @property
+    def is_binary(self) -> bool:
+        return self.binary_b64 is not None
 
 
 class ScaffoldBundle(BaseModel):
@@ -122,6 +133,12 @@ DEFAULT_DOTNET_VERSION = "8.0.x"
 DEFAULT_ENVIRONMENTS = ("dev", "qa", "uat", "prod")
 
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
+
+# Artefatos vendorizados da base chart: o `.tgz` empacotado (deployment/service/
+# ingress/etc.) e o Chart.lock correspondente, copiados verbatim do repo modelo do
+# time (AksHelmCharts). O time COMMITA esses arquivos; o agente os emite junto com a
+# chart fina para que `helm` ache as dependencias sem rodar `helm dependency build`.
+_VENDOR_DIR: Path = _TEMPLATES_DIR / "helm" / "basechart" / "_vendor"
 
 
 def _jinja_env() -> Environment:
@@ -266,6 +283,10 @@ def _render_basechart_chart(
     chart_root = f"helm/apps/{app_name}"
     ctx = {**context, "base_chart_name": name, "base_chart_version": version}
 
+    tgz_name = f"{name}-{version}.tgz"
+    tgz_bytes = (_VENDOR_DIR / tgz_name).read_bytes()
+    lock_text = (_VENDOR_DIR / f"{name}-{version}.lock").read_text(encoding="utf-8")
+
     files: list[ScaffoldedFile] = [
         ScaffoldedFile(
             path=f"{chart_root}/Chart.yaml",
@@ -274,6 +295,13 @@ def _render_basechart_chart(
         ScaffoldedFile(
             path=f"{chart_root}/values.yaml",
             content=_render_template(f"helm/basechart/{kind}/values.yaml.j2", ctx),
+        ),
+        # Chart.lock + charts/<base>.tgz vendorizados (par consistente do repo modelo):
+        # o digest do lock corresponde ao bloco de dependencies do Chart.yaml acima.
+        ScaffoldedFile(path=f"{chart_root}/Chart.lock", content=lock_text),
+        ScaffoldedFile(
+            path=f"{chart_root}/charts/{tgz_name}",
+            binary_b64=base64.b64encode(tgz_bytes).decode("ascii"),
         ),
     ]
     for env in environments:

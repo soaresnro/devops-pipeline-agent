@@ -1,0 +1,6 @@
+dependencies:
+- name: worker-chart
+  repository: file://../../../../AksHelmBaseCharts/base-charts/worker-chart
+  version: 1.0.0
+digest: sha256:f264d3d9bc944ffad60f7239998d04977d3f8bcda3cc0017214717ec1d414fa6
+generated: "2026-03-05T15:03:39.073717282-03:00"
