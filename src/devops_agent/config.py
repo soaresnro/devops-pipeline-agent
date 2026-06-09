@@ -53,18 +53,9 @@ class Settings(BaseSettings):
     # compilacao da pipeline gerada falha com "Unexpected parameter 'language'".
     pipeline_pass_language: bool = False
 
-    azure_openai_endpoint: str | None = None
-    azure_openai_api_key: str | None = None
-    azure_openai_deployment: str = "gpt-4.1"
-    azure_openai_api_version: str = "2024-10-21"
-
     log_level: str = "INFO"
     workdir_root: Path = Path("./.tmp/sessions")
     session_ttl_seconds: int = 3600
-
-    @property
-    def llm_enabled(self) -> bool:
-        return bool(self.azure_openai_endpoint and self.azure_openai_api_key)
 
     @property
     def environments(self) -> list[str]:

@@ -11,6 +11,12 @@ Agente conversacional **single-turn-by-turn** que automatiza a criacao de pipeli
 
 **Regra de ouro:** o LLM conversa e decide *o que* fazer; codigo deterministico decide *como* fazer.
 
+> **Nota de implementacao (atualizada):** a camada de LLM foi **removida** do produto. O
+> agente roda **somente em modo deterministico** (perguntas fixas via state machine); os
+> comandos `scaffold` e `chat` rodam o mesmo fluxo (`chat` e alias). As secoes 1-12 abaixo
+> descrevem a visao original (LLM como condutor, Teams bot, Azure OpenAI) que **nao** esta
+> implementada. A secao 13 e o estado real. Fonte de verdade do estado: [`agent-context.md`](agent-context.md).
+
 ---
 
 ## 1. Visao geral
@@ -314,7 +320,8 @@ A serem fechados conforme o desenvolvimento avanca:
 
 ## 13. Estado atual da implementacao
 
-POC completa em [`src/devops_agent/`](../src/devops_agent/). **101 testes passando**.
+POC completa em [`src/devops_agent/`](../src/devops_agent/). **234 testes passando**.
+A camada de LLM foi removida: o agente roda 100% deterministico.
 
 **Modulos prontos:**
 - `models/` — SessionState, Phase, AppType, PipelineRequest, RepoCoordinates, ToolResult, ExecutionResult
@@ -324,12 +331,7 @@ POC completa em [`src/devops_agent/`](../src/devops_agent/). **101 testes passan
 - `tools/azdo.py` — AzdoClient (httpx) com retry exponencial
 - `orchestrator/state_machine.py` — handlers das fases (state machine pura)
 - `orchestrator/executor.py` — clone duplo + write + commit + push + PR duplo
-- `llm/schemas.py` — tools em formato OpenAI function calling
-- `llm/client.py` — LLMClient (Protocol), AzureOpenAIClient, FakeLLMClient
-- `llm/system_prompt.py` — system prompt + wrap_user_input
-- `llm/dispatcher.py` — tool calls → handlers, com Pydantic validation
-- `llm/agent.py` — agent loop com tool budget
-- `cli.py` — comandos `scaffold` (deterministico) e `chat` (LLM)
+- `cli.py` — comandos `scaffold` e `chat` (mesmo fluxo deterministico; `chat` e alias)
 
 **Implementado (modo de auth `sp`):**
 - Service Principal via Entra ID (`AZDO_AUTH_MODE=sp`): app token por `ClientSecretCredential` (secret no Key Vault) ou `DefaultAzureCredential` (Managed Identity da Container App = o "WIF" do ADR; em AKS seria workload identity). Token usado para clone/push/PR (header `Authorization: Bearer`).

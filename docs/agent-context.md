@@ -27,9 +27,16 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-06-05)
+## Estado do projeto (atualizado em 2026-06-09)
 
-MVP/POC completo e verde: **268 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
+**Camada de LLM removida (2026-06-09).** O agente e 100% deterministico: state machine de
+perguntas fixas + templates Jinja2. O pacote `src/devops_agent/llm/` (agent loop, dispatcher,
+schemas, system_prompt, clients Azure OpenAI), o extra `[llm]` (openai/langgraph), os settings
+`AZURE_OPENAI_*` e os testes `test_llm_*` foram apagados. O comando `chat` virou **alias** do
+`scaffold` (mesmo fluxo deterministico) por compatibilidade. Motivo: o LLM nao trazia ganho real
+sobre o wizard de perguntas fixas e o determinismo simplifica auditoria, custo e dependencias.
+
+MVP/POC completo e verde: **234 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
 (AksHelmCharts): api/web/worker geram uma chart FINA que depende de uma base chart compartilhada
 (microservice-chart / worker-chart, em AksHelmBaseCharts via file://), com values aninhados sob a
 chave da base chart e override por ambiente skeleton (image `acraks<env>eastus`, tag `__imageTag__`,
@@ -88,8 +95,8 @@ persistente.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[dev]"      # ou ".[llm,dev]" para o modo chat
-copy .env.example .env       # preencher AZDO_* (e AZURE_OPENAI_* para chat)
+pip install -e ".[dev]"      # nao ha mais extra de LLM
+copy .env.example .env       # preencher AZDO_*
 gh auth login                # refazer login do gh
 pytest                       # deve ficar verde
 ```
