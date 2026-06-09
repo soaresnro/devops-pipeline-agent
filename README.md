@@ -8,44 +8,30 @@ POC em construcao. Veja `docs/architecture.md` (em breve) para a arquitetura com
 
 ## Como usar
 
-Dois modos disponiveis:
-
-### Modo conversacional (LLM)
-
-```bash
-pip install -e ".[llm,dev]"
-copy .env.example .env  # configure AZURE_OPENAI_* e AZDO_*
-devops-agent chat
-```
-
-Conversa natural com o agente. O LLM decide *quando* chamar cada tool;
-o codigo deterministico decide *como* gerar os artefatos.
-
-### Modo deterministico (sem LLM)
-
 ```bash
 pip install -e ".[dev]"
-devops-agent scaffold
+copy .env.example .env  # configure AZDO_*
+devops-agent scaffold   # (ou `devops-agent chat`, alias equivalente)
 ```
 
-Mesmo fluxo de 4 perguntas, mas via prompt fixo - sem dependencia de
-Azure OpenAI. Util para CI/scripts.
+Fluxo deterministico de perguntas fixas (repo, branch, namespace, tipo,
+linguagem) - sem dependencia de LLM. O codigo deterministico decide *como*
+gerar os artefatos via templates Jinja2. Util para CI/scripts.
 
-Ambos os modos clonam os 2 repositorios (app + devops-templates),
-escrevem arquivos, fazem commit/push em branches novas e abrem PRs.
+O agente clona os 2 repositorios (app + devops-templates), escreve arquivos,
+faz commit/push em branches novas e abre PRs.
 
 ## Estrutura
 
 ```
 src/devops_agent/
-  cli.py              Driver CLI (comandos scaffold e chat)
+  cli.py              Driver CLI (comandos scaffold e chat - mesmo fluxo)
   config.py           Settings (pydantic-settings)
   models/             Dominio (Pydantic) - SessionState, ToolResult, etc.
   orchestrator/       State machine + executor (clone/write/commit/push/PR)
   tools/              Tools deterministicas (validation, scaffold, git, azdo)
-  llm/                Agent loop + tool schemas + dispatcher + clients
   templates/          Templates Jinja2 (pipeline, dockerfile, helm chart)
-tests/                Testes (101 hoje: unit + integration + e2e CLI)
+tests/                Testes (234: unit + integration + e2e CLI)
 ```
 
 ## Setup de desenvolvimento

@@ -1,8 +1,9 @@
 """CLI driver da POC.
 
-Conduz as 4 perguntas usando a state machine deterministica.
-Quando o LLM for integrado, este driver se torna apenas um dos clients (junto
-com Teams bot e SPA).
+Conduz as perguntas usando a state machine deterministica (sem LLM). Os comandos
+`scaffold` e `chat` rodam exatamente o mesmo fluxo - `chat` e mantido como alias
+por compatibilidade. Quando houver um front-end (Teams bot / SPA), este driver se
+torna apenas um dos clients.
 """
 
 from __future__ import annotations
@@ -221,31 +222,9 @@ def _run_phase(session: SessionState, settings: object) -> bool:
     return False
 
 
-@app.command()
-def scaffold(
-    requested_by: str = typer.Option(
-        "",
-        "--requested-by",
-        help="Identificacao do usuario humano (email/oid) para auditoria.",
-    ),
-    user_token: str = typer.Option(
-        "",
-        "--user-token",
-        envvar="AZDO_AGENT_USER_ASSERTION",
-        help="Token de assercao do usuario (JWT) para o fluxo OBO no modo de auth 'sp'.",
-    ),
-    user_oid: str = typer.Option(
-        "",
-        "--user-oid",
-        help="Object ID (oid) do usuario humano, para auditoria.",
-    ),
-    log_level: str = typer.Option("INFO", "--log-level"),
-) -> None:
-    """Inicia a sessao conversacional de scaffold."""
-    logging.basicConfig(level=log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-
+def _load_settings() -> Settings:
     try:
-        settings = get_settings()
+        return get_settings()
     except Exception as exc:  # noqa: BLE001
         _print_error(
             f"Configuracao invalida: {exc}\n"
@@ -253,6 +232,15 @@ def scaffold(
         )
         raise typer.Exit(code=2) from exc
 
+
+def _run_deterministic_session(
+    settings: Settings,
+    *,
+    requested_by: str,
+    user_token: str,
+    user_oid: str,
+) -> None:
+    """Conduz a sessao de scaffold pela state machine deterministica (sem LLM)."""
     user_assertion = _resolve_user_assertion(settings, user_token)
 
     session = SessionState(
@@ -277,6 +265,35 @@ def scaffold(
 
 
 @app.command()
+def scaffold(
+    requested_by: str = typer.Option(
+        "",
+        "--requested-by",
+        help="Identificacao do usuario humano (email/oid) para auditoria.",
+    ),
+    user_token: str = typer.Option(
+        "",
+        "--user-token",
+        envvar="AZDO_AGENT_USER_ASSERTION",
+        help="Token de assercao do usuario (JWT) para o fluxo OBO no modo de auth 'sp'.",
+    ),
+    user_oid: str = typer.Option(
+        "",
+        "--user-oid",
+        help="Object ID (oid) do usuario humano, para auditoria.",
+    ),
+    log_level: str = typer.Option("INFO", "--log-level"),
+) -> None:
+    """Inicia a sessao de scaffold deterministica (perguntas fixas, sem LLM)."""
+    logging.basicConfig(level=log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    settings = _load_settings()
+    _run_deterministic_session(
+        settings, requested_by=requested_by, user_token=user_token, user_oid=user_oid
+    )
+
+
+@app.command()
 def chat(
     requested_by: str = typer.Option(
         "",
@@ -296,70 +313,14 @@ def chat(
     ),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
-    """Sessao conversacional com o LLM (Azure OpenAI)."""
+    """Alias de `scaffold`: roda o fluxo de scaffold deterministico (sem LLM)."""
     logging.basicConfig(level=log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    try:
-        settings = get_settings()
-    except Exception as exc:  # noqa: BLE001
-        _print_error(f"Configuracao invalida: {exc}")
-        raise typer.Exit(code=2) from exc
-
-    if not settings.llm_enabled:
-        _print_error(
-            "AZURE_OPENAI_ENDPOINT e AZURE_OPENAI_API_KEY nao configurados.\n"
-            "Configure-os no .env ou use 'devops-agent scaffold' (modo deterministico)."
-        )
-        raise typer.Exit(code=2)
-
-    try:
-        from devops_agent.llm import Agent, AgentError, AzureOpenAIClient
-    except RuntimeError as exc:
-        _print_error(
-            f"{exc}\nReinstale com extras: pip install -e \".[llm]\""
-        )
-        raise typer.Exit(code=2) from exc
-
-    llm = AzureOpenAIClient(
-        endpoint=settings.azure_openai_endpoint or "",
-        api_key=settings.azure_openai_api_key or "",
-        deployment=settings.azure_openai_deployment,
-        api_version=settings.azure_openai_api_version,
+    settings = _load_settings()
+    _print_agent("Modo deterministico (sem LLM) - equivalente a 'devops-agent scaffold'.")
+    _run_deterministic_session(
+        settings, requested_by=requested_by, user_token=user_token, user_oid=user_oid
     )
-
-    user_assertion = _resolve_user_assertion(settings, user_token)
-
-    session = SessionState(
-        requested_by=requested_by or getpass.getuser(),
-        user_assertion=user_assertion,
-        user_oid=user_oid or None,
-    )
-    console.print(f"[dim]session={session.session_id}[/dim]")
-
-    agent = Agent(session=session, settings=settings, llm=llm)
-
-    try:
-        greeting = agent.start()
-        _print_agent(greeting)
-
-        while not agent.is_finished():
-            user_text = _ask(">")
-            if not user_text:
-                continue
-            try:
-                response = agent.send(user_text)
-            except AgentError as exc:
-                _print_error(f"Limite excedido: {exc}")
-                break
-            _print_agent(response)
-    except KeyboardInterrupt:
-        _print_agent("Sessao interrompida pelo usuario.")
-        raise typer.Exit(code=130) from None
-
-    if session.phase == Phase.ERROR:
-        sys.exit(1)
-    if session.phase == Phase.ABORTED:
-        sys.exit(2)
 
 
 @app.command()

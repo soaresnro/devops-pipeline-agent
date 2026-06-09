@@ -12,9 +12,11 @@ import sys
 from pathlib import Path
 
 
-def _run_cli(env_file_dir: Path, stdin_text: str) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    env_file_dir: Path, stdin_text: str, command: str = "scaffold"
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "devops_agent.cli", "scaffold", "--requested-by", "tester@local"],
+        [sys.executable, "-m", "devops_agent.cli", command, "--requested-by", "tester@local"],
         cwd=str(env_file_dir),
         input=stdin_text,
         capture_output=True,
@@ -70,25 +72,39 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     assert "sessao cancelada" in stdout.lower()
 
 
-def test_cli_chat_sem_credenciais_falha_com_orientacao(tmp_path: Path) -> None:
-    """chat exige Azure OpenAI - sem credenciais, instrui usar scaffold."""
+def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
+    """chat e um alias deterministico de scaffold - nao exige Azure OpenAI."""
     env_file = tmp_path / ".env"
     env_file.write_text(
         "AZDO_ORG=contoso\n"
-        "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n",
+        "AZDO_AUTH_MODE=pat\n"
+        "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n"
+        "DEVOPS_TEMPLATES_TAG=v1\n"
+        "DEVOPS_TEMPLATES_REVIEWERS=devops-team\n",
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [sys.executable, "-m", "devops_agent.cli", "chat"],
-        cwd=str(tmp_path),
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
+
+    inputs = "\n".join(
+        [
+            "https://dev.azure.com/contoso/Platform/_git/payments-api",
+            "main",
+            "payments-prod",
+            "api",
+            "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
+            "",  # versao .NET: default
+            "",  # entrypoint .NET: default
+            "nao",
+            "",
+        ]
     )
-    assert result.returncode == 2
-    assert "AZURE_OPENAI" in result.stdout
-    assert "scaffold" in result.stdout
+
+    result = _run_cli(tmp_path, inputs, command="chat")
+    assert result.returncode == 2, f"esperado exit 2 (abort), saiu={result.returncode}\nstdout={result.stdout}"
+    assert "Modo deterministico" in result.stdout
+    assert "AZURE_OPENAI" not in result.stdout
+    assert "Qual o link do repositorio" in result.stdout
+    assert "Vou criar os seguintes arquivos" in result.stdout
+    assert "sessao cancelada" in result.stdout.lower()
 
 
 def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
