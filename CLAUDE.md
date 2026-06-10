@@ -4,7 +4,7 @@ Guidance para o Claude Code trabalhar neste repositorio.
 
 ## Visao geral
 
-Agente self-service (CLI **deterministica**, sem LLM) que automatiza criacao de pipelines CI/CD no Azure DevOps. Escopo MVP: deploy em AKS, imagens em ACR, Helm chart. Faz 4 perguntas (repo, branch, namespace, tipo: api/worker/web/cronjob) via state machine de perguntas fixas, detecta a linguagem do repo (dotnet/node/python/go) via Items API - perguntando ao usuario quando inconclusivo - e gera Dockerfile + azure-pipelines.yaml no repo da aplicacao alem do Helm chart no repo `devops-templates` do time de DevOps, abrindo PRs nos dois.
+Agente self-service (CLI **deterministica**, sem LLM) que automatiza criacao de pipelines CI/CD no Azure DevOps. Escopo MVP: deploy em AKS, imagens em ACR, Helm chart. Faz 4 perguntas (repo, branch, namespace, tipo: api/worker/web/cronjob) via state machine de perguntas fixas, detecta a linguagem do repo (dotnet/node/python/go) via Items API - perguntando ao usuario quando inconclusivo - e gera Dockerfile + azure-pipelines.yaml + Helm chart (`helm/manifests` + `helm/environments`) no repo da propria aplicacao, abrindo um unico PR.
 
 Documento de arquitetura completo: [`docs/architecture.md`](docs/architecture.md).
 
@@ -22,7 +22,7 @@ copy .env.example .env  # configurar AZDO_*
 
 **Testes:**
 ```bash
-.venv\Scripts\python -m pytest          # toda a suite (234 testes)
+.venv\Scripts\python -m pytest          # toda a suite (235 testes)
 .venv\Scripts\python -m pytest tests/test_scaffold.py -v
 .venv\Scripts\python -m pytest -k validation
 ```
@@ -43,7 +43,7 @@ src/devops_agent/
   models/             Pydantic: SessionState, Phase, AppType, ToolResult, ExecutionResult
   orchestrator/
     state_machine.py  Handlers puros das fases (sem LLM)
-    executor.py       Pipeline EXECUTE: clone duplo + write + commit + push + PR duplo
+    executor.py       Pipeline EXECUTE: clone do repo da app + write + commit + push + PR
   tools/
     validation.py     Validacao de URL (allowlist), branch, namespace (RFC 1123), tipo, linguagem
     detection.py      Deteccao pura de linguagem por marcadores (csproj/package.json/...)
@@ -54,10 +54,11 @@ src/devops_agent/
     pipeline/         azure-pipelines.yaml.j2 por stack: dotnet/ (contrato real) e _default/ (generico)
     dockerfile/       dotnet/node/python/go Dockerfile.j2 (runtime-only, COPY artefatos da pipeline, Alpine/tz/health) + web (nginx)
     helm/basechart/   Chart.yaml.j2 (dependency na base chart) + microservice/worker values base (api/web/worker)
+                      + _vendor/<base>/ (base charts descompactadas, copiadas verbatim do repo modelo)
     helm/_common/     Chart.yaml, values.yaml, templates (_helpers, serviceaccount) - so cronjob
     helm/cronjob/     cronjob.yaml (self-contained)
     environments/     microservice/ + worker/ (skeleton por ambiente) + values.yaml.j2 (cronjob)
-tests/                234 testes: unit + integration (git contra remote local) + e2e CLI
+tests/                235 testes: unit + integration (git contra remote local) + e2e CLI
 ```
 
 ## Decisoes arquiteturais nao-obvias
@@ -66,10 +67,9 @@ tests/                234 testes: unit + integration (git contra remote local) +
 - **azure-pipelines.yaml referencia template do DevOps por TAG**, nunca branch. Se mudar para branch, pipelines em producao vao quebrar quando alguem commitar no template.
 - **Novos `extends.parameters` na pipeline sao gated por setting**, porque o template e pinado por tag e parametro nao declarado quebra a compilacao. Ex.: `language` so e emitido com `PIPELINE_PASS_LANGUAGE=true` (default false) — ligar apenas quando a tag do devops-templates ja aceitar o parametro. Mesmo padrao para futuros parametros.
 - **O caminho do template de pipeline e escolhido pela linguagem** (`executor._pipeline_template_path`): `DEVOPS_TEMPLATE_<LINGUAGEM>` no .env, com fallback `DEVOPS_TEMPLATE_DEFAULT`. `web` reaproveita o template de node (build Node -> nginx). Selecao no executor; `dry_run`/`build_bundle` recebem `pipeline_template_path` (default `pipelines/k8s-app.yaml`).
-- **Layout do Helm alinhado ao template do time:** chart em `helm/apps/<app>` e override por ambiente em `helm/environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod) — o diretorio `environments/` fica DENTRO de `helm/`, como no repo modelo (AksHelmCharts). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
-- **Helm chart segue o padrao do time (AksHelmCharts):** api/web/worker geram uma chart FINA (`helm/basechart/Chart.yaml.j2`) que DEPENDE de uma base chart compartilhada (microservice-chart para api/web, worker-chart para worker, em `AksHelmBaseCharts` via `file://`), com values aninhados sob a chave da base chart (`microservice-chart:`/`worker-chart:`). NAO geramos templates (vem da base chart): a base chart e VENDORIZADA junto da chart fina — emitimos `helm/apps/<app>/charts/<base>-<ver>.tgz` (binario) + `helm/apps/<app>/Chart.lock`, par copiado verbatim do repo modelo (assets em `templates/helm/basechart/_vendor/`; o digest do lock casa com o bloco `dependencies` do Chart.yaml), entao o `helm` resolve a dependencia sem `helm dependency build`. Override por ambiente em `helm/environments/<env>/<app>/values.yaml` (skeleton: image por registry `acraks<env>eastus`, tag `__imageTag__`, ingresses/serviceAccount/workloadIdentity/env com placeholders). cronjob (sem base chart) mantem o chart self-contained (`helm/_common` + `helm/cronjob`). Selecao em `scaffold._BASE_CHARTS`.
-- **O repo do Helm pode ser separado do repo de templates:** `DEVOPS_HELM_REPO_URL` (fallback para `DEVOPS_TEMPLATES_REPO_URL`) e `DEVOPS_HELM_REPO_BRANCH` (default `main`, ex.: `master`) — clone + PR do chart vao para esse repo/branch (`executor._parse_helm_repo`). O repo de templates so e referenciado por tag na pipeline.
-- **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real - segue o modelo do time: `name`, `trigger` fixo (develop/release/hotfix/feature), `resources` (templates SEM ref + manifests = repo do Helm por branch), `pool`, variable groups, e os params (deployAKS=true/deployAppService=false, ApplicationType, projectType, deploymentStrategy=rolling, image*). `imageName` usa `{{ app_name }}` (nome do repo em lowercase, ja que repositorio Docker exige lowercase e para ficar igual ao `image.repository` do Helm) e nao o macro `$(Build.Repository.Name)`, que preservaria maiusculas e quebraria a promocao entre ACRs. node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, no fluxo pergunta-se a versao (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x) e o assembly de entrada (.dll) (fase ASK_DOTNET_ENTRYPOINT / tool set_dotnet_entrypoint; default {app_name}.dll); `pathApiManagementService`/`pathAutomation` sao derivados do app_name (sem prefixo `api-`).
+- **O Helm vive no repo da PROPRIA aplicacao** (nao no repo do time de DevOps): chart em `helm/manifests/` e override por ambiente em `helm/environments/<env>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`, default dev/qa/uat/prod). Um unico clone + um unico PR; a pipeline le os manifests do checkout self (sem resource `manifests`). Os manifests NAO fixam `metadata.namespace` — o `helm -n <ns>-<env>` do template decide (senao da erro "namespace does not match").
+- **Helm chart segue o padrao do time (AksHelmCharts):** api/web/worker geram uma chart FINA (`helm/basechart/Chart.yaml.j2`) que DEPENDE de uma base chart compartilhada (microservice-chart para api/web, worker-chart para worker), com values aninhados sob a chave da base chart (`microservice-chart:`/`worker-chart:`). NAO geramos templates (vem da base chart): a base chart e VENDORIZADA DESCOMPACTADA junto da chart fina — emitimos `helm/manifests/charts/<base>/` com os arquivos puros (Chart.yaml/values/templates), copiados verbatim do repo modelo (assets em `templates/helm/basechart/_vendor/<base>/`). Sem `.tgz` nem `Chart.lock`: o `helm` resolve a dependency declarada no Chart.yaml (sem `repository`) direto do diretorio `charts/<base>/`. Override por ambiente em `helm/environments/<env>/values.yaml` (skeleton: image por registry `acraks<env>eastus`, tag `__imageTag__`, ingresses/serviceAccount/workloadIdentity/env com placeholders). cronjob (sem base chart) mantem o chart self-contained (`helm/_common` + `helm/cronjob`). Selecao em `scaffold._BASE_CHARTS`.
+- **O BLOCO de `extends.parameters` e por stack** (`scaffold._pipeline_stack` + `templates/pipeline/<stack>/azure-pipelines.yaml.j2`), porque cada template do time tem contrato proprio. Hoje so `dotnet` tem o contrato real - segue o modelo do time: `name`, `trigger` fixo (develop/release/hotfix/feature), `resources` (so o repo de templates, SEM ref; os manifests do Helm vem do proprio checkout self), `pool`, variable groups, e os params (deployAKS=true/deployAppService=false, ApplicationType, projectType, deploymentStrategy=rolling, image*). `imageName` usa `{{ app_name }}` (nome do repo em lowercase, ja que repositorio Docker exige lowercase e para ficar igual ao `image.repository` do Helm) e nao o macro `$(Build.Repository.Name)`, que preservaria maiusculas e quebraria a promocao entre ACRs. node/python/go/web usam `_default` (bloco generico) ate termos os reais. Para dotnet, no fluxo pergunta-se a versao (fase ASK_DOTNET_VERSION / tool set_dotnet_version; default 8.0.x) e o assembly de entrada (.dll) (fase ASK_DOTNET_ENTRYPOINT / tool set_dotnet_entrypoint; default {app_name}.dll); `pathApiManagementService`/`pathAutomation` sao derivados do app_name (sem prefixo `api-`).
 - **Dockerfiles sao runtime-only** (modelo do time): sem build stage, `COPY . .` dos artefatos publicados pela pipeline; base Alpine, deps (tzdata/ca-certs/wget), timezone `America/Sao_Paulo`, HEALTHCHECK `/health` (api). dotnet: base aspnet (api) / runtime (worker/cronjob), tag derivada da versao; ENTRYPOINT = assembly informado. node/python/go com entrypoints placeholder (CI pre-builda).
 - **PR-only, sempre.** Nunca implemente commit direto em main mesmo onde for permitido. ADR-007.
 - **Allowlist rigida de org AzDO** (`AZDO_ORG` no .env). URLs de outras orgs sao recusadas em `validate_repo_url`. Nao remova essa verificacao.

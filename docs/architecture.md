@@ -95,7 +95,7 @@ GREET → ASK_REPO → ASK_BRANCH → ASK_NS → ASK_TYPE
 | `validate_namespace` | RFC 1123 + reservados |
 | `validate_app_type` | Enum api/worker/web |
 | `propose_scaffold` | Renderiza tudo em memoria, detecta colisoes |
-| `execute_scaffold` | Clone duplo + write + commit + push + PR duplo |
+| `execute_scaffold` | Clone do repo da app + write + commit + push + PR |
 | `abort_session` | Cancela sessao + audit |
 
 Toda tool retorna `{ok, data, error, error_code}` — nunca exception para o LLM. O LLM ve **verbos do dominio**, nao shell. Argumentos sao validados via Pydantic antes do handler rodar.
@@ -112,10 +112,10 @@ Exemplo: Maria quer pipeline para API `payments-api`.
 4. Pergunta namespace → `validate_namespace`
 5. Pergunta tipo → `validate_app_type`
 6. `propose_scaffold` → renderiza tudo, retorna lista de arquivos + colisoes
-7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml no `payments-api` e helm/apps/payments-api/* + helm/environments/<env>/payments-api/values.yaml no `devops-templates`. Confirma?"
-8. EXECUTE: clone shallow → escreve arquivos → cria branch `scaffold/api-20260529-1430` → commit/push → abre PR no repo da app e PR no repo devops-templates
+7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml, helm/manifests/* e helm/environments/<env>/values.yaml no `payments-api`. Confirma?"
+8. EXECUTE: clone shallow do repo da app → escreve arquivos → cria branch `scaffold/api-20260529-1430` → commit/push → abre PR no repo da app
 9. Cleanup tmpfs
-10. Agente entrega 2 links de PR no chat
+10. Agente entrega o link do PR no chat
 
 **Tempo total:** 60–90s apos confirmacao. Latencia por turno: <2s.
 
@@ -158,22 +158,20 @@ extends:
     imageTag: $(Build.BuildId)
 ```
 
-O chart vai para `helm/apps/<app>` e os overrides por ambiente para `helm/environments/<env>/<app>/values.yaml`
-(o diretorio `environments/` fica DENTRO de `helm/`, como no repo modelo; o template do time faz
-`helm upgrade -f` por ambiente).
+O Helm vive no **repositorio da propria aplicacao**: o chart vai para `helm/manifests/` e os overrides
+por ambiente para `helm/environments/<env>/values.yaml` (o template do time le os manifests do checkout
+self e faz `helm upgrade -f` por ambiente). Nao ha PR no repo do time de DevOps.
 
 **Modelo do time (AksHelmCharts):** api/web/worker geram uma chart FINA que depende de uma base chart
-compartilhada (microservice-chart/worker-chart, em AksHelmBaseCharts) — sem templates proprios; os values
-ficam aninhados sob a chave da base chart. cronjob mantem o chart self-contained. A tabela abaixo descreve
-as caracteristicas conceituais por tipo (hoje materializadas pela base chart).
+compartilhada (microservice-chart/worker-chart) — sem templates proprios; os values ficam aninhados sob
+a chave da base chart. cronjob mantem o chart self-contained. A tabela abaixo descreve as caracteristicas
+conceituais por tipo (hoje materializadas pela base chart).
 
-A chart fina **vendoriza a base chart** como o time faz: alem de `Chart.yaml`/`values.yaml`, o agente emite
-`charts/<base>-<ver>.tgz` (o pacote real da base chart, com deployment/service/ingress/hpa/etc.) e o
-`Chart.lock` correspondente. Esse par e copiado verbatim do repo modelo e fica vendorizado em
-`templates/helm/basechart/_vendor/`; o digest do lock casa com o bloco `dependencies` do `Chart.yaml`
-emitido, entao `helm` resolve a dependencia sem precisar de `helm dependency build`/acesso ao
-AksHelmBaseCharts no momento do deploy. O `.tgz` e binario: `ScaffoldedFile` carrega bytes em
-`binary_b64` e `write_files` grava com `write_bytes`.
+A chart fina **vendoriza a base chart descompactada**: alem de `Chart.yaml`/`values.yaml`, o agente emite
+`helm/manifests/charts/<base>/` com os arquivos puros da base chart (deployment/service/ingress/hpa/etc.),
+copiados verbatim do repo modelo e mantidos em `templates/helm/basechart/_vendor/<base>/`. O `helm`
+resolve a dependency declarada no `Chart.yaml` direto do diretorio `charts/<base>/`, sem `.tgz`,
+`Chart.lock`, `helm dependency build` ou acesso ao AksHelmBaseCharts no momento do deploy.
 
 **Decisao critica:** referencia por tag evita que mudanca no template quebre pipelines em producao sem aviso.
 
@@ -226,7 +224,7 @@ AksHelmBaseCharts no momento do deploy. O `.tgz` e binario: `ScaffoldedFile` car
 | Namespace nao reservado (`kube-*`, `default`, `istio-*`) | recusa |
 | `app_type` ∈ {api, worker, web} | recusa |
 | Colisao `Dockerfile`/`azure-pipelines.yaml` no app | mostra diff, 3 opcoes |
-| Colisao `helm/apps/<app>/` no devops-templates | mesma coisa |
+| Colisao `helm/manifests/` ou `helm/environments/` no app | mesma coisa |
 | Templates DevOps acessiveis na tag esperada | health check unhealthy |
 
 ---
@@ -311,16 +309,17 @@ A serem fechados conforme o desenvolvimento avanca:
 1. Templates do DevOps em **um repo versionado por tag**, ou varios? (Se varios → mover para mono-repo antes do MVP)
 2. **Teams ou Slack** como UI principal?
 3. Existe catalogo/API de namespaces oficiais do cluster?
-4. Quem aprova PRs no `devops-templates`? (Configurar como reviewer obrigatorio)
-5. **Data residency** para Azure OpenAI? (Sweden Central, West Europe?)
-6. SLA esperado (tier-1 oncall 24/7 vs tier-2)?
-7. Orcamento aprovado para Azure OpenAI ($50–150/mes para validar)?
+4. SLA esperado (tier-1 oncall 24/7 vs tier-2)?
+
+> Os pontos sobre Azure OpenAI (data residency, orcamento) cairam com a remocao da camada de LLM.
+> O ponto sobre reviewers do `devops-templates` caiu: o Helm passou a viver no repo da propria app
+> (PR unico, revisado pelo time dono da aplicacao).
 
 ---
 
 ## 13. Estado atual da implementacao
 
-POC completa em [`src/devops_agent/`](../src/devops_agent/). **234 testes passando**.
+POC completa em [`src/devops_agent/`](../src/devops_agent/). **235 testes passando**.
 A camada de LLM foi removida: o agente roda 100% deterministico.
 
 **Modulos prontos:**
@@ -330,7 +329,7 @@ A camada de LLM foi removida: o agente roda 100% deterministico.
 - `tools/git_ops.py` — temp_workspace, clone_shallow, write_files, create_branch_and_commit, push_branch
 - `tools/azdo.py` — AzdoClient (httpx) com retry exponencial
 - `orchestrator/state_machine.py` — handlers das fases (state machine pura)
-- `orchestrator/executor.py` — clone duplo + write + commit + push + PR duplo
+- `orchestrator/executor.py` — clone do repo da app + write + commit + push + PR
 - `cli.py` — comandos `scaffold` e `chat` (mesmo fluxo deterministico; `chat` e alias)
 
 **Implementado (modo de auth `sp`):**

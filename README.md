@@ -18,8 +18,9 @@ Fluxo deterministico de perguntas fixas (repo, branch, namespace, tipo,
 linguagem) - sem dependencia de LLM. O codigo deterministico decide *como*
 gerar os artefatos via templates Jinja2. Util para CI/scripts.
 
-O agente clona os 2 repositorios (app + devops-templates), escreve arquivos,
-faz commit/push em branches novas e abre PRs.
+O agente clona o repositorio da aplicacao, escreve os arquivos (Dockerfile,
+azure-pipelines.yaml e o Helm em `helm/manifests` + `helm/environments`),
+faz commit/push em branch nova e abre um unico PR.
 
 ## Estrutura
 
@@ -31,7 +32,7 @@ src/devops_agent/
   orchestrator/       State machine + executor (clone/write/commit/push/PR)
   tools/              Tools deterministicas (validation, scaffold, git, azdo)
   templates/          Templates Jinja2 (pipeline, dockerfile, helm chart)
-tests/                Testes (234: unit + integration + e2e CLI)
+tests/                Testes (235: unit + integration + e2e CLI)
 ```
 
 ## Setup de desenvolvimento

@@ -195,11 +195,7 @@ def write_files(repo_path: Path, files: list[ScaffoldedFile]) -> ToolResult[int]
         for f in files:
             full = repo_path / Path(f.path)
             full.parent.mkdir(parents=True, exist_ok=True)
-            if f.is_binary:
-                assert f.binary_b64 is not None  # is_binary garante
-                full.write_bytes(base64.b64decode(f.binary_b64))
-            else:
-                full.write_text(f.content, encoding="utf-8")
+            full.write_text(f.content, encoding="utf-8")
             count += 1
     except OSError as exc:
         return ToolResult.failure(

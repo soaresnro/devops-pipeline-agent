@@ -32,12 +32,10 @@ class Phase(StrEnum):
 
 
 class ExecutionResult(BaseModel):
-    """Resultado do EXECUTE - links dos PRs abertos."""
+    """Resultado do EXECUTE - link do PR aberto no repo da aplicacao."""
 
     app_pr_url: str | None = None
-    helm_pr_url: str | None = None
     app_branch: str | None = None
-    helm_branch: str | None = None
 
 
 class SessionState(BaseModel):

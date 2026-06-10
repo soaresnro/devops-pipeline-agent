@@ -1,5 +1,5 @@
 """Executor da fase EXECUTE: orquestra clone, write, commit, push e PR
-nos dois repositorios (app e devops-templates).
+no repositorio da aplicacao (Dockerfile + pipeline + Helm em helm/).
 """
 
 from __future__ import annotations
@@ -45,16 +45,6 @@ class DevOpsTemplatesRepo:
     tag: str
 
 
-@dataclass
-class HelmRepo:
-    """Repo onde o Helm chart e escrito (clone + PR), com a branch alvo."""
-
-    clone_url: str
-    project: str
-    repository: str
-    branch: str
-
-
 def _parse_devops_repo(settings: Settings) -> DevOpsTemplatesRepo:
     """Extrai project/repo da URL do devops-templates."""
     from devops_agent.tools.validation import validate_repo_url
@@ -69,22 +59,6 @@ def _parse_devops_repo(settings: Settings) -> DevOpsTemplatesRepo:
         project=r.data.project,
         repository=r.data.repository,
         tag=settings.devops_templates_tag,
-    )
-
-
-def _parse_helm_repo(settings: Settings) -> HelmRepo:
-    """Repo do Helm: DEVOPS_HELM_REPO_URL, ou o de templates se nao informado."""
-    from devops_agent.tools.validation import validate_repo_url
-
-    url = settings.devops_helm_repo_url or settings.devops_templates_repo_url
-    r = validate_repo_url(url, allowed_org=settings.azdo_org)
-    if not r.ok or r.data is None:
-        raise ValueError(f"URL do repo do Helm invalida: {r.error}")
-    return HelmRepo(
-        clone_url=url,
-        project=r.data.project,
-        repository=r.data.repository,
-        branch=settings.devops_helm_repo_branch,
     )
 
 
@@ -153,14 +127,10 @@ def _check_user_permission(
 
 def render_summary(bundle: ScaffoldBundle) -> str:
     """Mensagem de confirmacao mostrada ao usuario antes do EXECUTE."""
-    app_paths = "\n".join(f"  - {f.path}" for f in bundle.app_repo_files)
-    helm_paths = "\n".join(f"  - {f.path}" for f in bundle.helm_chart_files)
+    paths = "\n".join(f"  - {f.path}" for f in bundle.files)
     return (
-        "Vou criar os seguintes arquivos:\n\n"
-        "No repositorio da aplicacao:\n"
-        f"{app_paths}\n\n"
-        "No repositorio do time de DevOps (devops-templates):\n"
-        f"{helm_paths}\n"
+        "Vou criar os seguintes arquivos no repositorio da aplicacao:\n\n"
+        f"{paths}\n"
     )
 
 
@@ -173,7 +143,6 @@ def prepare_dry_run(
         return ToolResult.failure("Sessao incompleta para dry_run.", code="session.incomplete")
 
     devops_repo = _parse_devops_repo(settings)
-    helm_repo = _parse_helm_repo(settings)
     acr_name = _derive_acr_name(settings)
 
     language = session.language or Language.DOTNET
@@ -192,8 +161,6 @@ def prepare_dry_run(
         acr_name=acr_name,
         devops_templates_repo_name=f"{devops_repo.project}/{devops_repo.repository}",
         devops_templates_tag=devops_repo.tag,
-        devops_helm_repo_name=f"{helm_repo.project}/{helm_repo.repository}",
-        devops_helm_repo_branch=helm_repo.branch,
     )
 
 
@@ -284,7 +251,7 @@ def execute(
     *,
     workdir_root: Path | None = None,
 ) -> ToolResult[ExecutionResult]:
-    """Pipeline EXECUTE: clona app + devops repos, escreve, commita, faz push e abre PRs."""
+    """Pipeline EXECUTE: clona o repo da app, escreve, commita, faz push e abre o PR."""
     if not session.confirmed:
         return ToolResult.failure(
             "Usuario nao confirmou - executar abortado.", code="execute.not_confirmed"
@@ -297,7 +264,6 @@ def execute(
     dry = bundle_result.data
     assert dry is not None
     bundle = dry.bundle
-    helm_repo = _parse_helm_repo(settings)
 
     assert session.repo_coords is not None
     assert session.app_type is not None
@@ -326,7 +292,6 @@ def execute(
     git_auth = _git_auth_from_settings(settings, app_token)
 
     app_branch = f"scaffold/{session.app_type.value}-{_timestamp_slug()}"
-    helm_branch = f"scaffold/{session.app_name}-helm-{_timestamp_slug()}"
     commit_msg = (
         f"chore(ci): scaffold pipeline para {session.app_name} ({session.app_type.value}) "
         f"via agent (session={session.session_id})"
@@ -344,7 +309,6 @@ def execute(
     execution = ExecutionResult()
 
     with temp_workspace(root=workdir_root) as ws:
-        # 1) Repo da aplicacao
         app_clone = clone_shallow(
             ws,
             key="app",
@@ -356,14 +320,14 @@ def execute(
             return ToolResult.failure(app_clone.error or "clone app falhou", code="execute.app_clone")
 
         existing_app = list_existing_paths(app_clone.data)
-        colisoes_app = [f.path for f in bundle.app_repo_files if f.path in existing_app]
+        colisoes_app = [f.path for f in bundle.files if f.path in existing_app]
         if colisoes_app:
             return ToolResult.failure(
-                f"Arquivos ja existem no repo da app: {', '.join(colisoes_app)}",
+                f"Arquivos ja existem no repo da app: {', '.join(colisoes_app[:5])}",
                 code="execute.app_collision",
             )
 
-        w1 = write_files(app_clone.data, bundle.app_repo_files)
+        w1 = write_files(app_clone.data, bundle.files)
         if not w1.ok:
             return ToolResult.failure(w1.error or "write app falhou", code="execute.app_write")
 
@@ -381,52 +345,13 @@ def execute(
 
         execution.app_branch = app_branch
 
-        # 2) Repo do Helm (pode ser separado do repo de templates)
-        helm_clone = clone_shallow(
-            ws,
-            key="devops",
-            clone_url=helm_repo.clone_url,
-            branch=helm_repo.branch,
-            auth=git_auth,
-        )
-        if not helm_clone.ok or helm_clone.data is None:
-            return ToolResult.failure(
-                helm_clone.error or "clone do repo do Helm falhou", code="execute.devops_clone"
-            )
-
-        existing_devops = list_existing_paths(helm_clone.data)
-        colisoes_devops = [f.path for f in bundle.helm_chart_files if f.path in existing_devops]
-        if colisoes_devops:
-            return ToolResult.failure(
-                f"Arquivos ja existem no repo do Helm: {', '.join(colisoes_devops[:3])}",
-                code="execute.devops_collision",
-            )
-
-        w2 = write_files(helm_clone.data, bundle.helm_chart_files)
-        if not w2.ok:
-            return ToolResult.failure(w2.error or "write devops falhou", code="execute.devops_write")
-
-        b2 = create_branch_and_commit(
-            helm_clone.data,
-            new_branch=helm_branch,
-            commit_message=commit_msg,
-        )
-        if not b2.ok:
-            return ToolResult.failure(b2.error or "commit devops falhou", code="execute.devops_commit")
-
-        p2 = push_branch(helm_clone.data, branch=helm_branch, auth=git_auth)
-        if not p2.ok:
-            return ToolResult.failure(p2.error or "push devops falhou", code="execute.devops_push")
-
-        execution.helm_branch = helm_branch
-
-    # 3) Abre PRs via Azure DevOps REST API (se houver credencial)
+    # Abre o PR via Azure DevOps REST API (se houver credencial)
     if settings.azdo_auth_mode == "sp" and app_token:
         pr_client = AzdoClient(organization=settings.azdo_org, bearer_token=app_token)
     elif settings.azdo_pat:
         pr_client = AzdoClient(organization=settings.azdo_org, pat=settings.azdo_pat)
     else:
-        logger.warning("Sem credencial para abrir PR - branches enviadas sem PR automatico.")
+        logger.warning("Sem credencial para abrir PR - branch enviada sem PR automatico.")
         session.execution = execution
         return ToolResult.success(execution)
 
@@ -441,19 +366,6 @@ def execute(
         )
         if pr_app.ok and pr_app.data is not None:
             execution.app_pr_url = pr_app.data.web_url
-
-        reviewers = [r.strip() for r in settings.devops_templates_reviewers.split(",") if r.strip()]
-        pr_helm = client.create_pull_request(
-            helm_repo.project,
-            helm_repo.repository,
-            source_branch=helm_branch,
-            target_branch=helm_repo.branch,
-            title=f"chore(charts): novo chart para {session.app_name}",
-            description=pr_description,
-            reviewers=reviewers or None,
-        )
-        if pr_helm.ok and pr_helm.data is not None:
-            execution.helm_pr_url = pr_helm.data.web_url
 
     session.execution = execution
     return ToolResult.success(execution)

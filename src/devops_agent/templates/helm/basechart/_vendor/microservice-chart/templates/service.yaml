@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "microservice-chart.fullname" . }}
+  labels:
+    app: {{ include "microservice-chart.fullname" . }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ include "microservice-chart.fullname" . }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP
+      name: http

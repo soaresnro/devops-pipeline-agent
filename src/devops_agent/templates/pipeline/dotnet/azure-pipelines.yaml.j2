@@ -12,15 +12,13 @@ trigger:
       - hotfix/*
       - feature/*
 
+# Os manifests do Helm vivem neste proprio repositorio (helm/manifests +
+# helm/environments); a pipeline os le do checkout self, sem resource dedicado.
 resources:
   repositories:
     - repository: templates
       type: git
       name: {{ devops_templates_repo_name }}
-    - repository: manifests
-      type: git
-      name: {{ devops_helm_repo_name }}
-      ref: refs/heads/{{ devops_helm_repo_branch }}
 
 pool:
   name: agt_pool_linux_vmss

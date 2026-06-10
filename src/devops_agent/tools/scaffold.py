@@ -6,7 +6,6 @@ Ele apenas decide *quando* chamar render/dry_run e com quais parametros tipados.
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -17,47 +16,35 @@ from devops_agent.models import AppType, Language, ToolResult
 
 
 class ScaffoldedFile(BaseModel):
-    """Um arquivo a ser escrito em um repositorio.
-
-    Texto por padrao (`content`). Para artefatos binarios (ex.: o `.tgz` da base
-    chart vendorizada), `binary_b64` carrega os bytes em base64 e `content` fica
-    vazio; `write_files` decide entre `write_text`/`write_bytes` por `is_binary`.
-    """
+    """Um arquivo de texto a ser escrito no repositorio da aplicacao."""
 
     path: str
     content: str = ""
-    binary_b64: str | None = None
-
-    @property
-    def is_binary(self) -> bool:
-        return self.binary_b64 is not None
 
 
 class ScaffoldBundle(BaseModel):
-    """Conjunto completo de arquivos resultantes do scaffold."""
+    """Conjunto completo de arquivos resultantes do scaffold.
 
-    app_repo_files: list[ScaffoldedFile]
-    helm_chart_files: list[ScaffoldedFile]
+    Tudo vai para o repositorio da PROPRIA aplicacao (Dockerfile,
+    azure-pipelines.yaml e o Helm em helm/manifests + helm/environments).
+    """
+
+    files: list[ScaffoldedFile]
 
     @property
-    def all_app_paths(self) -> list[str]:
-        return [f.path for f in self.app_repo_files]
-
-    @property
-    def all_helm_paths(self) -> list[str]:
-        return [f.path for f in self.helm_chart_files]
+    def all_paths(self) -> list[str]:
+        return [f.path for f in self.files]
 
 
 class DryRunResult(BaseModel):
     """Resultado da pre-renderizacao com colisoes detectadas."""
 
     bundle: ScaffoldBundle
-    app_repo_collisions: list[str] = []
-    helm_repo_collisions: list[str] = []
+    collisions: list[str] = []
 
     @property
     def has_collisions(self) -> bool:
-        return bool(self.app_repo_collisions or self.helm_repo_collisions)
+        return bool(self.collisions)
 
 
 @dataclass(frozen=True)
@@ -134,11 +121,11 @@ DEFAULT_ENVIRONMENTS = ("dev", "qa", "uat", "prod")
 
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
-# Artefatos vendorizados da base chart: o `.tgz` empacotado (deployment/service/
-# ingress/etc.) e o Chart.lock correspondente, copiados verbatim do repo modelo do
-# time (AksHelmCharts). O time COMMITA esses arquivos; o agente os emite junto com a
-# chart fina para que `helm` ache as dependencias sem rodar `helm dependency build`.
-_VENDOR_DIR: Path = _TEMPLATES_DIR / "helm" / "basechart" / "_vendor"
+# Base charts vendorizadas DESCOMPACTADAS (deployment/service/ingress/etc.),
+# copiadas verbatim do repo modelo do time (AksHelmCharts). O agente as emite como
+# arquivos puros em helm/manifests/charts/<base>/ junto com a chart fina, entao o
+# `helm` resolve a dependencia do diretorio sem `helm dependency build` nem `.tgz`.
+_VENDOR_RELPATH = "helm/basechart/_vendor"
 
 
 def _jinja_env() -> Environment:
@@ -187,8 +174,6 @@ def _build_template_context(
     pipeline_template_path: str,
     dotnet_version: str,
     dotnet_entrypoint: str,
-    devops_helm_repo_name: str,
-    devops_helm_repo_branch: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
@@ -205,8 +190,6 @@ def _build_template_context(
         "dotnet_image_tag": dotnet_version.split(".")[0] + ".0",
         # assembly de entrada; default app_name.dll quando nao informado.
         "dotnet_entrypoint": dotnet_entrypoint or f"{app_name}.dll",
-        "devops_helm_repo_name": devops_helm_repo_name,
-        "devops_helm_repo_branch": devops_helm_repo_branch,
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
@@ -256,15 +239,21 @@ _BASE_CHARTS: dict[AppType, tuple[str, str, str]] = {
 }
 
 
+# Raiz da chart e dos overrides por ambiente DENTRO do repo da aplicacao.
+_CHART_ROOT = "helm/manifests"
+_ENVIRONMENTS_ROOT = "helm/environments"
+
+
 def render_helm_chart(
     app_type: AppType,
     context: dict[str, object],
     environments: list[str],
 ) -> list[ScaffoldedFile]:
-    """Renderiza o Helm chart (helm/apps/<app>) + override por ambiente.
+    """Renderiza o Helm chart (helm/manifests) + override por ambiente.
 
     api/web/worker geram uma chart fina que DEPENDE de uma base chart do time
-    (microservice-chart/worker-chart), com values aninhados sob a chave da base
+    (microservice-chart/worker-chart) vendorizada descompactada em
+    helm/manifests/charts/<base>/, com values aninhados sob a chave da base
     chart. cronjob (sem base chart) mantem o chart self-contained com templates.
     """
     base = _BASE_CHARTS.get(app_type)
@@ -279,37 +268,27 @@ def _render_basechart_chart(
     environments: list[str],
 ) -> list[ScaffoldedFile]:
     name, version, kind = base
-    app_name = context["app_name"]
-    chart_root = f"helm/apps/{app_name}"
     ctx = {**context, "base_chart_name": name, "base_chart_version": version}
-
-    tgz_name = f"{name}-{version}.tgz"
-    tgz_bytes = (_VENDOR_DIR / tgz_name).read_bytes()
-    lock_text = (_VENDOR_DIR / f"{name}-{version}.lock").read_text(encoding="utf-8")
 
     files: list[ScaffoldedFile] = [
         ScaffoldedFile(
-            path=f"{chart_root}/Chart.yaml",
+            path=f"{_CHART_ROOT}/Chart.yaml",
             content=_render_template("helm/basechart/Chart.yaml.j2", ctx),
         ),
         ScaffoldedFile(
-            path=f"{chart_root}/values.yaml",
+            path=f"{_CHART_ROOT}/values.yaml",
             content=_render_template(f"helm/basechart/{kind}/values.yaml.j2", ctx),
         ),
-        # Chart.lock + charts/<base>.tgz vendorizados (par consistente do repo modelo):
-        # o digest do lock corresponde ao bloco de dependencies do Chart.yaml acima.
-        ScaffoldedFile(path=f"{chart_root}/Chart.lock", content=lock_text),
-        ScaffoldedFile(
-            path=f"{chart_root}/charts/{tgz_name}",
-            binary_b64=base64.b64encode(tgz_bytes).decode("ascii"),
-        ),
     ]
+    # Base chart vendorizada descompactada: o helm resolve a dependency declarada
+    # no Chart.yaml direto do diretorio charts/<base>/, sem Chart.lock nem .tgz.
+    for rel, content in _walk_static_helm_files(f"{_VENDOR_RELPATH}/{name}"):
+        files.append(ScaffoldedFile(path=f"{_CHART_ROOT}/charts/{name}/{rel}", content=content))
+
     for env in environments:
         env_values = _render_template(f"environments/{kind}/values.yaml.j2", {**ctx, "env": env})
         files.append(
-            ScaffoldedFile(
-                path=f"helm/environments/{env}/{app_name}/values.yaml", content=env_values
-            )
+            ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
         )
     files.sort(key=lambda f: f.path)
     return files
@@ -322,32 +301,28 @@ def _render_selfcontained_chart(
 ) -> list[ScaffoldedFile]:
     """Chart self-contained (cronjob): Chart.yaml + values + templates proprios."""
     files: list[ScaffoldedFile] = []
-    app_name = context["app_name"]
-    chart_root = f"helm/apps/{app_name}"
 
     files.append(
         ScaffoldedFile(
-            path=f"{chart_root}/Chart.yaml",
+            path=f"{_CHART_ROOT}/Chart.yaml",
             content=_render_template("helm/_common/Chart.yaml.j2", context),
         )
     )
     files.append(
         ScaffoldedFile(
-            path=f"{chart_root}/values.yaml",
+            path=f"{_CHART_ROOT}/values.yaml",
             content=_render_template("helm/_common/values.yaml.j2", context),
         )
     )
     for rel, content in _walk_static_helm_files("helm/_common/templates"):
-        files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
+        files.append(ScaffoldedFile(path=f"{_CHART_ROOT}/templates/{rel}", content=content))
     for rel, content in _walk_static_helm_files(f"helm/{app_type.value}/templates"):
-        files.append(ScaffoldedFile(path=f"{chart_root}/templates/{rel}", content=content))
+        files.append(ScaffoldedFile(path=f"{_CHART_ROOT}/templates/{rel}", content=content))
 
     for env in environments:
         env_values = _render_template("environments/values.yaml.j2", {**context, "env": env})
         files.append(
-            ScaffoldedFile(
-                path=f"helm/environments/{env}/{app_name}/values.yaml", content=env_values
-            )
+            ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
         )
 
     files.sort(key=lambda f: f.path)
@@ -370,8 +345,6 @@ def build_bundle(
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
     environments: list[str] | None = None,
-    devops_helm_repo_name: str | None = None,
-    devops_helm_repo_branch: str = "main",
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     envs = environments if environments is not None else list(DEFAULT_ENVIRONMENTS)
@@ -389,20 +362,18 @@ def build_bundle(
         pipeline_template_path=pipeline_template_path,
         dotnet_version=dotnet_version,
         dotnet_entrypoint=dotnet_entrypoint,
-        devops_helm_repo_name=devops_helm_repo_name or devops_templates_repo_name,
-        devops_helm_repo_branch=devops_helm_repo_branch,
     )
 
-    app_files = [
+    files = [
         ScaffoldedFile(path="Dockerfile", content=render_dockerfile(app_type, language, ctx)),
         ScaffoldedFile(
             path="azure-pipelines.yaml",
             content=render_pipeline_yaml(ctx, stack=_pipeline_stack(app_type, language)),
         ),
+        *render_helm_chart(app_type, ctx, envs),
     ]
-    helm_files = render_helm_chart(app_type, ctx, envs)
 
-    return ScaffoldBundle(app_repo_files=app_files, helm_chart_files=helm_files)
+    return ScaffoldBundle(files=files)
 
 
 def dry_run(
@@ -421,10 +392,7 @@ def dry_run(
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
     environments: list[str] | None = None,
-    devops_helm_repo_name: str | None = None,
-    devops_helm_repo_branch: str = "main",
-    existing_app_repo_paths: set[str] | None = None,
-    existing_helm_repo_paths: set[str] | None = None,
+    existing_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
     """Renderiza todos os arquivos em memoria e checa colisoes contra arquivos existentes."""
     try:
@@ -443,8 +411,6 @@ def dry_run(
             dotnet_version=dotnet_version,
             dotnet_entrypoint=dotnet_entrypoint,
             environments=environments,
-            devops_helm_repo_name=devops_helm_repo_name,
-            devops_helm_repo_branch=devops_helm_repo_branch,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao
         return ToolResult.failure(
@@ -452,23 +418,10 @@ def dry_run(
             code="scaffold.render_error",
         )
 
-    app_existing = existing_app_repo_paths or set()
-    helm_existing = existing_helm_repo_paths or set()
+    existing = {_normalize(e) for e in (existing_repo_paths or set())}
+    collisions = sorted(p for p in bundle.all_paths if _normalize(p) in existing)
 
-    app_collisions = sorted(
-        p for p in bundle.all_app_paths if _normalize(p) in {_normalize(e) for e in app_existing}
-    )
-    helm_collisions = sorted(
-        p for p in bundle.all_helm_paths if _normalize(p) in {_normalize(e) for e in helm_existing}
-    )
-
-    return ToolResult.success(
-        DryRunResult(
-            bundle=bundle,
-            app_repo_collisions=app_collisions,
-            helm_repo_collisions=helm_collisions,
-        )
-    )
+    return ToolResult.success(DryRunResult(bundle=bundle, collisions=collisions))
 
 
 def _normalize(path: str) -> str:
