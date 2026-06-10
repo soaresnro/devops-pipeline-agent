@@ -32,12 +32,6 @@ class Settings(BaseSettings):
 
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
-    devops_templates_reviewers: str = "devops-team"
-    # Repo onde os Helm charts sao escritos (PR). Pode ser diferente do repo de
-    # templates; se vazio, usa o proprio DEVOPS_TEMPLATES_REPO_URL.
-    devops_helm_repo_url: str | None = None
-    # Branch alvo do repo do Helm (clone + PR). Ex.: master.
-    devops_helm_repo_branch: str = "main"
     # Template de pipeline (no devops-templates) por linguagem detectada. Quando uma
     # linguagem nao tem caminho proprio, usa devops_template_default. web reaproveita
     # o de node (build Node -> nginx).
@@ -46,7 +40,7 @@ class Settings(BaseSettings):
     devops_template_node: str | None = None
     devops_template_python: str | None = None
     devops_template_go: str | None = None
-    # Ambientes para os quais gerar helm/environments/<env>/<app>/values.yaml (override por env).
+    # Ambientes para os quais gerar helm/environments/<env>/values.yaml (override por env).
     devops_environments: str = "dev,qa,uat,prod"
     # Emite `language` em extends.parameters da pipeline. So ative apos a tag do
     # devops-templates (DEVOPS_TEMPLATES_TAG) declarar esse parametro, senao a

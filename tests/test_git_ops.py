@@ -158,15 +158,12 @@ class TestGitOps:
             verify_repo, "ls-tree", "-r", "--name-only", "HEAD"
         )
 
-    def test_write_files_grava_binario_intacto(self, fake_remote: Path) -> None:
-        import base64
-
-        payload = bytes(range(256)) * 4  # bytes nao-UTF8, exercita o ramo binario
+    def test_write_files_cria_diretorios_aninhados(self, fake_remote: Path) -> None:
         files = [
             ScaffoldedFile(path="texto.txt", content="ola\n"),
             ScaffoldedFile(
-                path="charts/base.tgz",
-                binary_b64=base64.b64encode(payload).decode("ascii"),
+                path="helm/manifests/charts/microservice-chart/templates/deployment.yaml",
+                content="kind: Deployment\n",
             ),
         ]
         with temp_workspace() as ws:
@@ -174,7 +171,11 @@ class TestGitOps:
             assert cr.ok and cr.data is not None
             wr = write_files(cr.data, files)
             assert wr.ok and wr.data == 2
-            assert (cr.data / "charts" / "base.tgz").read_bytes() == payload
+            nested = (
+                cr.data / "helm" / "manifests" / "charts" / "microservice-chart"
+                / "templates" / "deployment.yaml"
+            )
+            assert nested.read_text(encoding="utf-8") == "kind: Deployment\n"
             assert (cr.data / "texto.txt").read_text(encoding="utf-8") == "ola\n"
 
     def test_commit_sem_mudancas_falha(self, fake_remote: Path) -> None:

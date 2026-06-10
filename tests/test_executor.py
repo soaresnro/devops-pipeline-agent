@@ -268,53 +268,32 @@ class TestPipelineTemplatePath:
         )
 
 
-class TestParseHelmRepo:
-    def _settings(self, **extra: object) -> Settings:
-        base = dict(
-            azdo_org="contoso",
-            devops_templates_repo_url="https://dev.azure.com/contoso/Platform/_git/devops-templates",
-        )
-        return Settings(**{**base, **extra})  # type: ignore[arg-type]
-
-    def test_default_usa_repo_de_templates_e_main(self) -> None:
-        helm = exec_mod._parse_helm_repo(self._settings())
-        assert helm.repository == "devops-templates"
-        assert helm.branch == "main"
-
-    def test_repo_e_branch_configurados(self) -> None:
-        helm = exec_mod._parse_helm_repo(
-            self._settings(
-                devops_helm_repo_url="https://dev.azure.com/contoso/Platform/_git/helm-charts",
-                devops_helm_repo_branch="master",
-            )
-        )
-        assert helm.repository == "helm-charts"
-        assert helm.branch == "master"
-        assert helm.clone_url.endswith("/helm-charts")
-
-
-class TestHelmRepoConfig:
+class TestSingleRepoExecute:
     @respx.mock
-    def test_clone_e_pr_usam_repo_e_branch_do_helm(
+    def test_clone_e_pr_unicos_no_repo_da_app(
         self, monkeypatch: pytest.MonkeyPatch, confirmed_session: SessionState
     ) -> None:
+        # O Helm vive no proprio repo da app: nao ha segundo clone nem segundo PR.
         settings = Settings(  # type: ignore[call-arg]
             azdo_org="contoso",
             azdo_auth_mode="pat",
             azdo_pat="dummy",
             devops_templates_repo_url="https://dev.azure.com/contoso/Platform/_git/devops-templates",
-            devops_helm_repo_url="https://dev.azure.com/contoso/Platform/_git/helm-charts",
-            devops_helm_repo_branch="master",
         )
         clones: dict[str, dict[str, object]] = {}
+        written: list[list[str]] = []
 
         def _clone(ws: object, **kw: object) -> ToolResult[Path]:
             clones[str(kw["key"])] = kw
             return ToolResult.success(Path(ws.root) / str(kw["key"]))  # type: ignore[attr-defined]
 
+        def _write(p: Path, files: list[object]) -> ToolResult[int]:
+            written.append([f.path for f in files])  # type: ignore[attr-defined]
+            return ToolResult.success(len(files))
+
         monkeypatch.setattr(exec_mod, "clone_shallow", _clone)
         monkeypatch.setattr(exec_mod, "list_existing_paths", lambda p: set())
-        monkeypatch.setattr(exec_mod, "write_files", lambda p, files: ToolResult.success(len(files)))
+        monkeypatch.setattr(exec_mod, "write_files", _write)
         monkeypatch.setattr(
             exec_mod, "create_branch_and_commit", lambda p, **kw: ToolResult.success("a" * 40)
         )
@@ -340,12 +319,16 @@ class TestHelmRepoConfig:
 
         r = exec_mod.execute(confirmed_session, settings)
         assert r.ok, r.error
-        # o clone do Helm usa o repo e a branch configurados
-        assert str(clones["devops"]["clone_url"]).endswith("/helm-charts")
-        assert clones["devops"]["branch"] == "master"
-        # o PR do chart tem master como alvo
-        helm_pr = next(b for b in bodies if "helm" in str(b["sourceRefName"]))
-        assert helm_pr["targetRefName"] == "refs/heads/master"
+        # um unico clone: o do repo da aplicacao
+        assert set(clones) == {"app"}
+        assert str(clones["app"]["clone_url"]).endswith("/payments-api")
+        # o write inclui o Helm junto dos demais arquivos, no mesmo repo
+        assert len(written) == 1
+        assert "helm/manifests/Chart.yaml" in written[0]
+        assert "Dockerfile" in written[0]
+        # um unico PR, contra a branch da app
+        assert len(bodies) == 1
+        assert bodies[0]["targetRefName"] == "refs/heads/main"
 
 
 class TestPatModeInalterado:

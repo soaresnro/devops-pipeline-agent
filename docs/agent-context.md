@@ -27,7 +27,19 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-06-09)
+## Estado do projeto (atualizado em 2026-06-10)
+
+**Helm no repo da propria aplicacao (2026-06-10).** O agente passou a gerar TUDO no repositorio
+da propria app, com um unico clone e um unico PR: Dockerfile, azure-pipelines.yaml, chart em
+`helm/manifests/` e overrides por ambiente em `helm/environments/<env>/values.yaml`. Nao ha mais
+PR no repo do time de DevOps; o resource `manifests` saiu da pipeline dotnet (os manifests vem do
+checkout self) e o `helmChartPath` do template `_default` aponta para `helm/manifests`. A base
+chart e vendorizada **descompactada** em `helm/manifests/charts/<base>/` (arquivos puros, sem
+`.tgz` nem `Chart.lock`; a dependency no Chart.yaml nao tem `repository` e o helm resolve do
+diretorio — validado com `helm lint`/`helm template` reais). Com isso cairam: o suporte a binario
+em `ScaffoldedFile` (`binary_b64`), os settings `DEVOPS_HELM_REPO_URL`/`DEVOPS_HELM_REPO_BRANCH`/
+`DEVOPS_TEMPLATES_REVIEWERS`, o `HelmRepo`/`_parse_helm_repo` do executor e os campos
+`helm_branch`/`helm_pr_url` de `ExecutionResult`. `ScaffoldBundle` virou lista unica (`files`).
 
 **Camada de LLM removida (2026-06-09).** O agente e 100% deterministico: state machine de
 perguntas fixas + templates Jinja2. O pacote `src/devops_agent/llm/` (agent loop, dispatcher,
@@ -36,19 +48,13 @@ schemas, system_prompt, clients Azure OpenAI), o extra `[llm]` (openai/langgraph
 `scaffold` (mesmo fluxo deterministico) por compatibilidade. Motivo: o LLM nao trazia ganho real
 sobre o wizard de perguntas fixas e o determinismo simplifica auditoria, custo e dependencias.
 
-MVP/POC completo e verde: **234 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
+MVP/POC completo e verde: **235 testes**, `mypy --strict` limpo. O Helm segue o padrao do time
 (AksHelmCharts): api/web/worker geram uma chart FINA que depende de uma base chart compartilhada
-(microservice-chart / worker-chart, em AksHelmBaseCharts via file://), com values aninhados sob a
-chave da base chart e override por ambiente skeleton (image `acraks<env>eastus`, tag `__imageTag__`,
-ingresses/serviceAccount/workloadIdentity/env placeholders). cronjob continua self-contained.
-A chart fina **vendoriza a base chart**: alem de `Chart.yaml`/`values.yaml`, emite
-`charts/<base>-<ver>.tgz` (o pacote real da base chart, com deployment/service/ingress/etc.) e o
-`Chart.lock` correspondente — par copiado verbatim do repo modelo, com digest do lock casando com o
-bloco `dependencies` do `Chart.yaml`. Assim o `helm` resolve a dependencia sem `helm dependency build`.
-Os assets ficam vendorizados em `templates/helm/basechart/_vendor/` e sao emitidos como arquivo
-binario (`ScaffoldedFile.binary_b64`; `write_files` grava bytes). O wheel passou a empacotar tudo via
-`packages = ["src/devops_agent"]` (removido o `force-include` de templates, que duplicava arquivos e
-quebrava o build do wheel).
+(microservice-chart / worker-chart), com values aninhados sob a chave da base chart e override por
+ambiente skeleton (image `acraks<env>eastus`, tag `__imageTag__`, ingresses/serviceAccount/
+workloadIdentity/env placeholders). cronjob continua self-contained. Os assets da base chart ficam
+em `templates/helm/basechart/_vendor/<base>/`. O wheel empacota tudo via
+`packages = ["src/devops_agent"]`.
 Os Dockerfiles sao runtime-only
 (modelo do time): sem build stage, COPY dos artefatos publicados pela pipeline, Alpine + tzdata/ca-certs
 + timezone America/Sao_Paulo + HEALTHCHECK /health (api). Para dotnet, o fluxo pergunta versao E
@@ -57,8 +63,7 @@ o modelo real do time (name, trigger develop/release/hotfix/feature, resources t
 branch, pool, variable groups, params com deploymentStrategy/image*; `path*` derivado do app_name sem
 prefixo `api-`). `imageName` usa `{{ app_name }}` (repo em lowercase) — nao o macro `$(Build.Repository.Name)`,
 que preservava maiusculas e quebrava a promocao entre ACRs ("repository name must be lowercase").
-Testes sao hermeticos (`tests/conftest.py` desabilita a leitura do `.env`). O repo do
-Helm e configuravel e separado do repo de templates (`DEVOPS_HELM_REPO_URL` + `DEVOPS_HELM_REPO_BRANCH`, default `main`).
+Testes sao hermeticos (`tests/conftest.py` desabilita a leitura do `.env`).
 `validate_repo_url` aceita
 os formatos `dev.azure.com/<org>/...` e o legado `<org>.visualstudio.com/<projeto>/_git/<repo>`
 (org = subdominio). A allowlist `AZDO_ORG` compara com a org extraida da URL.
@@ -67,9 +72,10 @@ os formatos `dev.azure.com/<org>/...` e o legado `<org>.visualstudio.com/<projet
 pipeline e por stack (`templates/pipeline/<stack>/azure-pipelines.yaml.j2`); `dotnet` usa o contrato
 real (applicationName/ApplicationType/dotNetVersion/deployAKS=true/deployAppService=false; versao
 perguntada no fluxo, default 8.0.x); node/python/go/web seguem no `_default` generico ate recebermos
-os templates reais. (PR2) o Helm passou a ser gerado em `helm/apps/<app>` + override por ambiente em
-`helm/environments/<env>/<app>/values.yaml` (ambientes via `DEVOPS_ENVIRONMENTS`); os manifests nao fixam
-mais `metadata.namespace` (o `helm -n <ns>-<env>` do template decide). Falta, conforme os templates
+os templates reais. (PR2) o Helm passou a gerar override por ambiente (ambientes via
+`DEVOPS_ENVIRONMENTS`); os manifests nao fixam `metadata.namespace` (o `helm -n <ns>-<env>` do
+template decide). Desde 2026-06-10 o layout e `helm/manifests` + `helm/environments/<env>/values.yaml`
+no repo da propria app. Falta, conforme os templates
 reais de node/python/go chegarem, criar os respectivos `templates/pipeline/<stack>/`. Publicado no GitHub
 em `https://github.com/soaresnro/devops-pipeline-agent` (licenca MIT).
 
@@ -106,12 +112,11 @@ pytest                       # deve ficar verde
 ## Testar o fluxo contra um Azure DevOps real (resumo)
 
 Use `AZDO_AUTH_MODE=pat` (o modo `sp` exige app registrations + OBO; e producao).
-PAT com escopo **Code (Read & Write)**. Deixe `DEVOPS_TEMPLATES_REVIEWERS` vazio
-(o codigo manda reviewer como `{"id": ...}` e um nome simples nao e GUID valido).
+PAT com escopo **Code (Read & Write)**.
 
 1. `devops-agent scaffold` faz as perguntas, mostra o resumo e pergunta `confirma?`.
-   Responder `nao` = dry-run seguro (nada e escrito). `sim` = abre os 2 PRs
-   (app: Dockerfile + azure-pipelines.yaml; devops-templates: Helm chart).
+   Responder `nao` = dry-run seguro (nada e escrito). `sim` = abre UM PR no repo da
+   app (Dockerfile + azure-pipelines.yaml + helm/manifests + helm/environments).
 2. Para a pipeline **compilar/rodar**, o template referenciado precisa existir no
    repo `devops-templates` **na tag** `DEVOPS_TEMPLATES_TAG` (referencia por tag,
    nunca branch). O caminho e escolhido pela linguagem via `DEVOPS_TEMPLATE_<LINGUAGEM>`

@@ -175,11 +175,8 @@ def _run_phase(session: SessionState, settings: object) -> bool:
         bundle = result.data.bundle
         _print_agent(exec_mod.render_summary(bundle))
         if result.data.has_collisions:
-            collisions = (
-                "Colisoes detectadas:\n"
-                + "\n".join(f"  - {c}" for c in result.data.app_repo_collisions)
-                + "\n"
-                + "\n".join(f"  - {c}" for c in result.data.helm_repo_collisions)
+            collisions = "Colisoes detectadas:\n" + "\n".join(
+                f"  - {c}" for c in result.data.collisions
             )
             _print_error(collisions + "\n\nAbortando.")
             session.phase = Phase.ABORTED
@@ -199,7 +196,7 @@ def _run_phase(session: SessionState, settings: object) -> bool:
         return True
 
     if session.phase == Phase.EXECUTE:
-        _print_agent("Executando: clonando repos, escrevendo arquivos, abrindo PRs...")
+        _print_agent("Executando: clonando o repo, escrevendo arquivos, abrindo PR...")
         exec_result = exec_mod.execute(session, settings)  # type: ignore[arg-type]
         if not exec_result.ok or exec_result.data is None:
             _print_error(exec_result.error or "Falha no execute.")
@@ -211,10 +208,6 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             msg += f"PR do repo da aplicacao: {data.app_pr_url}\n"
         elif data.app_branch:
             msg += f"Branch enviada (PR nao aberto - configure credencial): {data.app_branch}\n"
-        if data.helm_pr_url:
-            msg += f"PR do repo devops-templates: {data.helm_pr_url}\n"
-        elif data.helm_branch:
-            msg += f"Branch enviada (PR nao aberto - configure credencial): {data.helm_branch}\n"
         _print_agent(msg)
         session.phase = Phase.DONE
         return False

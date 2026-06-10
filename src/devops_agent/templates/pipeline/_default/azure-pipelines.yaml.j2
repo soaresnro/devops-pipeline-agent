@@ -22,7 +22,7 @@ extends:
     appType: {{ app_type }}
     namespace: {{ namespace }}
     acrName: {{ acr_name }}
-    helmChartPath: charts/{{ app_name }}
+    helmChartPath: helm/manifests
     dockerfilePath: Dockerfile
 {%- if pipeline_pass_language and app_type != 'web' %}
     language: {{ language }}

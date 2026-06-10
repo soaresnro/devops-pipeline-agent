@@ -36,8 +36,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
         "AZDO_ORG=contoso\n"
         "AZDO_AUTH_MODE=pat\n"
         "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n"
-        "DEVOPS_TEMPLATES_TAG=v1\n"
-        "DEVOPS_TEMPLATES_REVIEWERS=devops-team\n",
+        "DEVOPS_TEMPLATES_TAG=v1\n",
         encoding="utf-8",
     )
 
@@ -67,8 +66,8 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     assert "Vou criar os seguintes arquivos" in stdout
     assert "Dockerfile" in stdout
     assert "azure-pipelines.yaml" in stdout
-    assert "helm/apps/payments-api/Chart.yaml" in stdout
-    assert "helm/environments/dev/payments-api/values.yaml" in stdout
+    assert "helm/manifests/Chart.yaml" in stdout
+    assert "helm/environments/dev/values.yaml" in stdout
     assert "sessao cancelada" in stdout.lower()
 
 
@@ -79,8 +78,7 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
         "AZDO_ORG=contoso\n"
         "AZDO_AUTH_MODE=pat\n"
         "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n"
-        "DEVOPS_TEMPLATES_TAG=v1\n"
-        "DEVOPS_TEMPLATES_REVIEWERS=devops-team\n",
+        "DEVOPS_TEMPLATES_TAG=v1\n",
         encoding="utf-8",
     )
 

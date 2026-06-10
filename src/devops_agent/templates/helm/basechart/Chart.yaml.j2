@@ -5,7 +5,8 @@ type: application
 version: 0.1.0
 appVersion: "1.0.0"
 
+# A base chart esta vendorizada descompactada em charts/{{ base_chart_name }}/;
+# o helm resolve a dependency do diretorio, sem repository nem Chart.lock.
 dependencies:
   - name: {{ base_chart_name }}
     version: "{{ base_chart_version }}"
-    repository: "file://../../../../AksHelmBaseCharts/base-charts/{{ base_chart_name }}"
