@@ -201,7 +201,8 @@ class TestEnvironments:
         assert legacy["name"] == "api-utils-legacy"
         assert legacy["className"] == "private-legacy-nginx"
         assert legacy["rules"][0]["host"] == "servicesutilsqa.epharma.com.br"
-        assert mc["serviceAccount"]["name"] == "sa-api-utils"
+        # SA no formato sa-{namespace}-{applicationName}
+        assert mc["serviceAccount"]["name"] == "sa-payments-prod-api-utils"
 
     def test_prod_omite_segmento_de_ambiente_no_host(
         self, base_ctx: dict[str, object]
@@ -272,6 +273,7 @@ class TestRenderedContent:
             dotnet_version="9.0.x",
             application_name="api-utils",
             apim_path="utils",
+            api_id="api-utils",
             **base_ctx,  # type: ignore[arg-type]
         )
         pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
@@ -288,10 +290,25 @@ class TestRenderedContent:
         assert "pathAutomation" not in params
         assert params["deploymentStrategy"] == "rolling"
         assert params["pathApiManagementService"] == "utils"
+        # apiId (template-aks): obrigatorio, emitido para api
+        assert params["apiId"] == "api-utils"
         # imageName = macro do repo (modelo real do time)
         assert params["imageName"] == "$(Build.Repository.Name)"
         assert params["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
         assert "appType" not in params
+
+    def test_pipeline_apiid_so_para_api(self, base_ctx: dict[str, object]) -> None:
+        # apiId (APIM) so e emitido para api; worker/cronjob dotnet nao passam apiId
+        api = build_bundle(app_type=AppType.API, api_id="api-utils", **base_ctx)  # type: ignore[arg-type]
+        worker = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        api_params = yaml.safe_load(
+            next(f for f in api.files if f.path == "azure-pipelines.yaml").content
+        )["extends"]["parameters"]
+        worker_params = yaml.safe_load(
+            next(f for f in worker.files if f.path == "azure-pipelines.yaml").content
+        )["extends"]["parameters"]
+        assert api_params["apiId"] == "api-utils"
+        assert "apiId" not in worker_params
 
     def test_pipeline_dotnet_defaults_derivados(self, base_ctx: dict[str, object]) -> None:
         # sem application_name/apim_path informados: applicationName = app_name e

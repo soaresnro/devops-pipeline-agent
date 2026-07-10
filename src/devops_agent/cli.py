@@ -186,6 +186,16 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_API_ID:
+        _print_agent(sm.question_for(Phase.ASK_API_ID))
+        raw = _ask("(apiId do APIM) >")
+        step = sm.handle_api_id(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.ASK_INGRESS_HOST:
         _print_agent(sm.question_for(Phase.ASK_INGRESS_HOST))
         raw = _ask("(enter para derivar de 'services<path>') >")

@@ -154,6 +154,7 @@ extends:
     namespace: corporativo
     deploymentStrategy: rolling
     pathApiManagementService: utils                  # perguntado (default = applicationName sem 'api-')
+    apiId: api-utils                                 # perguntado (OBRIGATORIO, sem default; so api)
     ApplicationType: dotnet
     projectType: webapi
     dotNetVersion: 8.0.x
@@ -326,7 +327,7 @@ A serem fechados conforme o desenvolvimento avanca:
 
 ## 13. Estado atual da implementacao
 
-POC completa em [`src/devops_agent/`](../src/devops_agent/). **247 testes passando**.
+POC completa em [`src/devops_agent/`](../src/devops_agent/). **250 testes passando**.
 A camada de LLM foi removida: o agente roda 100% deterministico.
 
 **Modulos prontos:**

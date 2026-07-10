@@ -178,13 +178,13 @@ class TestHandleApplicationName:
 
 
 class TestHandleApimPath:
-    def test_valido_vai_para_ingress_host(self, session: SessionState) -> None:
+    def test_valido_vai_para_api_id(self, session: SessionState) -> None:
         session.application_name = "api-utils"
         session.phase = Phase.ASK_APIM_PATH
         step = sm.handle_apim_path(session, "utils")
         assert not step.error
         assert session.apim_path == "utils"
-        assert session.phase == Phase.ASK_INGRESS_HOST
+        assert session.phase == Phase.ASK_API_ID
 
     def test_vazio_deriva_do_application_name(self, session: SessionState) -> None:
         session.application_name = "api-utils"
@@ -192,7 +192,24 @@ class TestHandleApimPath:
         step = sm.handle_apim_path(session, "")
         assert not step.error
         assert session.apim_path == "utils"  # remove o prefixo 'api-'
+        assert session.phase == Phase.ASK_API_ID
+
+
+class TestHandleApiId:
+    def test_valido_vai_para_ingress_host(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_API_ID
+        step = sm.handle_api_id(session, "api-utils")
+        assert not step.error
+        assert session.api_id == "api-utils"
         assert session.phase == Phase.ASK_INGRESS_HOST
+
+    def test_vazio_e_obrigatorio_permanece(self, session: SessionState) -> None:
+        # apiId nao tem default: entrada vazia re-pergunta
+        session.phase = Phase.ASK_API_ID
+        step = sm.handle_api_id(session, "   ")
+        assert step.error
+        assert step.next_phase == Phase.ASK_API_ID
+        assert session.api_id is None
 
 
 class TestHandleIngressHost:

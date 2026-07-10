@@ -13,6 +13,7 @@ from devops_agent.config import Settings
 from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.tools.scaffold import default_apim_path, default_ingress_host
 from devops_agent.tools.validation import (
+    validate_api_id,
     validate_apim_path,
     validate_app_type,
     validate_application_name,
@@ -56,6 +57,9 @@ _QUESTIONS = {
     Phase.ASK_APIM_PATH: (
         "Qual o pathApiManagementService (path no APIM)? Ex.: utils "
         "(enter deriva do applicationName, sem o prefixo 'api-')."
+    ),
+    Phase.ASK_API_ID: (
+        "Qual o apiId do APIM? Ex.: api-utils (obrigatorio - o template-aks exige)."
     ),
     Phase.ASK_INGRESS_HOST: (
         "Qual o host base do ingress? Ex.: servicesutils "
@@ -312,11 +316,10 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
     # Entrada vazia deriva do applicationName (sem o prefixo 'api-').
     if not user_input.strip():
         session.apim_path = default_apim_path(application_name)
-        session.phase = Phase.ASK_INGRESS_HOST
+        session.phase = Phase.ASK_API_ID
         return StepResult(
-            next_phase=Phase.ASK_INGRESS_HOST,
-            message_to_user=f"Path do APIM: {session.apim_path}\n"
-            + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+            next_phase=Phase.ASK_API_ID,
+            message_to_user=f"Path do APIM: {session.apim_path}\n" + _QUESTIONS[Phase.ASK_API_ID],
         )
 
     result = validate_apim_path(user_input)
@@ -328,10 +331,28 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
         )
 
     session.apim_path = result.data
+    session.phase = Phase.ASK_API_ID
+    return StepResult(
+        next_phase=Phase.ASK_API_ID,
+        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_API_ID],
+    )
+
+
+def handle_api_id(session: SessionState, user_input: str) -> StepResult:
+    # Obrigatorio (sem default): entrada vazia re-pergunta.
+    result = validate_api_id(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_API_ID,
+            message_to_user=result.error or "apiId invalido.",
+            error=result.error,
+        )
+
+    session.api_id = result.data
     session.phase = Phase.ASK_INGRESS_HOST
     return StepResult(
         next_phase=Phase.ASK_INGRESS_HOST,
-        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+        message_to_user=f"apiId: {result.data}\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
     )
 
 
