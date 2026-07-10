@@ -51,6 +51,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "",  # entrypoint .NET: enter usa o default app_name.dll
             "",  # applicationName: enter usa o nome do repo
             "",  # pathApiManagementService: enter deriva do applicationName
+            "api-payments",  # apiId: obrigatorio (sem default)
             "",  # host do ingress: enter deriva de services<path>
             "nao",
             "",
@@ -97,6 +98,7 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
             "",  # entrypoint .NET: default
             "",  # applicationName: default
             "",  # pathApiManagementService: default
+            "api-payments",  # apiId: obrigatorio (sem default)
             "",  # host do ingress: default
             "nao",
             "",
@@ -133,6 +135,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "",  # entrypoint .NET: enter usa o default
             "",  # applicationName: default
             "",  # pathApiManagementService: default
+            "api-payments",  # apiId: obrigatorio (sem default)
             "",  # host do ingress: default
             "nao",
             "",

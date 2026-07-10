@@ -92,6 +92,9 @@ _DOTNET_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 _DNS_LABEL_MAX_LEN = 63
 
+# apiId do APIM: identificador com letras/digitos e . _ - (comeca com letra/digito).
+_API_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 
 def validate_repo_url(
     url: str,
@@ -290,6 +293,23 @@ def validate_apim_path(value: str) -> ToolResult[str]:
             code="apim_path.invalid",
         )
     return ToolResult.success(path)
+
+
+def validate_api_id(value: str) -> ToolResult[str]:
+    """Valida o apiId do APIM (identificador; obrigatorio, sem default).
+
+    Aceita letras, digitos e os caracteres . _ - (ex.: api-utils, utils-v1).
+    """
+    if not value or not value.strip():
+        return ToolResult.failure("apiId nao informado.", code="api_id.empty")
+    api_id = value.strip()
+    if len(api_id) > 120 or not _API_ID_RE.match(api_id):
+        return ToolResult.failure(
+            "apiId invalido. Use letras, digitos e os caracteres . _ - "
+            "(comece com letra ou digito; ex.: api-utils).",
+            code="api_id.invalid",
+        )
+    return ToolResult.success(api_id)
 
 
 def validate_ingress_host(value: str) -> ToolResult[str]:

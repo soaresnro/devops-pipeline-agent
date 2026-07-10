@@ -52,6 +52,9 @@ extends:
     deploymentStrategy: 'rolling'
 
     pathApiManagementService: '{{ apim_path }}'
+{%- if app_type == 'api' %}
+    apiId: '{{ api_id }}'
+{%- endif %}
 
     # Tipo e stack
     ApplicationType: 'dotnet'

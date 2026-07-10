@@ -29,6 +29,14 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-10)
 
+**Pipeline template-aks + apiId + SA por namespace (2026-07-10).** Ajustes pos-teste: (1) o stack
+dotnet passa a apontar para `pipelines/template-aks.yml` (via `DEVOPS_TEMPLATE_DOTNET`; era
+`hybrid-template.yml`); (2) esse template exige o param **`apiId`**, agora emitido no `extends.parameters`
+(so para api) e coletado por uma pergunta nova OBRIGATORIA no fluxo (fase ASK_API_ID / `handle_api_id` /
+`validate_api_id`; sem default). (3) o `serviceAccount.name` do override passa de `sa-{applicationName}`
+para **`sa-{namespace}-{applicationName}`** (ex.: `sa-corporativo-api-utils`; diverge da referencia, que
+usava so o applicationName). 250 testes verdes, `mypy --strict` limpo.
+
 **Alinhamento 1:1 ao repo modelo `epharma-api-utils` (2026-07-10).** Os artefatos gerados passaram
 a espelhar exatamente o repo real do time (`epharma-api-utils`, branch `configuracao/aks`). Mudancas:
 (1) **Helm** em `helm/base/` (era `helm/manifests/`), com a base chart VENDORIZADA EMPACOTADA

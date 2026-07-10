@@ -44,7 +44,7 @@ microservice-chart:
 
   serviceAccount:
     create: true
-    name: sa-{{ application_name }}
+    name: sa-{{ namespace }}-{{ application_name }}
 
   workloadIdentity:
     clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
