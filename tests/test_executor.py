@@ -324,7 +324,7 @@ class TestSingleRepoExecute:
         assert str(clones["app"]["clone_url"]).endswith("/payments-api")
         # o write inclui o Helm junto dos demais arquivos, no mesmo repo
         assert len(written) == 1
-        assert "helm/manifests/Chart.yaml" in written[0]
+        assert "helm/base/Chart.yaml" in written[0]
         assert "Dockerfile" in written[0]
         # um unico PR, contra a branch da app
         assert len(bodies) == 1

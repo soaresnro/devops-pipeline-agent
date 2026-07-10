@@ -6,6 +6,7 @@ Ele apenas decide *quando* chamar render/dry_run e com quais parametros tipados.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -16,17 +17,27 @@ from devops_agent.models import AppType, Language, ToolResult
 
 
 class ScaffoldedFile(BaseModel):
-    """Um arquivo de texto a ser escrito no repositorio da aplicacao."""
+    """Um arquivo a ser escrito no repositorio da aplicacao.
+
+    Texto por padrao (`content`). Para artefatos binarios (ex.: o `.tgz` da base
+    chart vendorizada), `binary_b64` carrega os bytes em base64 e `content` fica
+    vazio; `write_files` decide entre `write_text`/`write_bytes` por `is_binary`.
+    """
 
     path: str
     content: str = ""
+    binary_b64: str | None = None
+
+    @property
+    def is_binary(self) -> bool:
+        return self.binary_b64 is not None
 
 
 class ScaffoldBundle(BaseModel):
     """Conjunto completo de arquivos resultantes do scaffold.
 
     Tudo vai para o repositorio da PROPRIA aplicacao (Dockerfile,
-    azure-pipelines.yaml e o Helm em helm/manifests + helm/environments).
+    azure-pipelines.yaml e o Helm em helm/base + helm/environments).
     """
 
     files: list[ScaffoldedFile]
@@ -113,6 +124,9 @@ DEFAULT_CRON_SCHEDULE = "0 * * * *"
 # Caminho default do template de pipeline no repo devops-templates.
 DEFAULT_PIPELINE_TEMPLATE_PATH = "pipelines/k8s-app.yaml"
 
+# Branch default do repo de templates referenciado pelo stack dotnet (contrato template-aks).
+DEFAULT_TEMPLATES_BRANCH = "master"
+
 # Versao default do .NET quando o usuario nao informa.
 DEFAULT_DOTNET_VERSION = "8.0.x"
 
@@ -121,11 +135,11 @@ DEFAULT_ENVIRONMENTS = ("dev", "qa", "uat", "prod")
 
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parent.parent / "templates"
 
-# Base charts vendorizadas DESCOMPACTADAS (deployment/service/ingress/etc.),
-# copiadas verbatim do repo modelo do time (AksHelmCharts). O agente as emite como
-# arquivos puros em helm/manifests/charts/<base>/ junto com a chart fina, entao o
-# `helm` resolve a dependencia do diretorio sem `helm dependency build` nem `.tgz`.
-_VENDOR_RELPATH = "helm/basechart/_vendor"
+# Base charts vendorizadas EMPACOTADAS (<base>-<versao>.tgz) + Chart.lock, saidas reais
+# de `helm dependency build` do repo modelo do time (AksHelmBaseCharts). O agente emite o
+# par consistente (.tgz em charts/ + Chart.lock) junto da chart fina; o Chart.yaml declara
+# a dependency com `repository: file://.../AksHelmBaseCharts/...` e o helm resolve do .tgz.
+_VENDOR_DIR: Path = _TEMPLATES_DIR / "helm" / "basechart" / "_vendor"
 
 
 def _jinja_env() -> Environment:
@@ -159,6 +173,37 @@ def _walk_static_helm_files(base_relpath: str) -> list[tuple[str, str]]:
     return out
 
 
+def default_apim_path(application_name: str) -> str:
+    """pathApiManagementService: convencao do time (applicationName sem o prefixo 'api-')."""
+    return application_name.removeprefix("api-")
+
+
+def default_ingress_host(apim_path: str) -> str:
+    """Host base do ingress: convencao 'services<path>' (ex.: utils -> servicesutils)."""
+    return f"services{apim_path}"
+
+
+def _ingress_hosts(host_base: str, env: str) -> dict[str, object]:
+    """Deriva os hosts/secrets dos dois ingresses (primary + legacy) por ambiente.
+
+    Convencao epharma: prod omite o segmento de ambiente; os demais o incluem.
+    """
+    if env == "prod":
+        primary_host = f"{host_base}.k8s.epharma.com.br"
+        primary_secret = "cert-wildcard-k8s-epharma-com-br-tls"
+        legacy_host = f"{host_base}.epharma.com.br"
+    else:
+        primary_host = f"{host_base}.k8s.{env}.epharma.com.br"
+        primary_secret = f"cert-wildcard-k8s-{env}-epharma-com-br-tls"
+        legacy_host = f"{host_base}{env}.epharma.com.br"
+    return {
+        "ingress_primary_host": primary_host,
+        "ingress_primary_secret": primary_secret,
+        "ingress_legacy_host": legacy_host,
+        "ingress_legacy_secret": "cert-wildcard-epharma-com-br-tls",
+    }
+
+
 def _build_template_context(
     *,
     app_name: str,
@@ -169,17 +214,24 @@ def _build_template_context(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    devops_templates_branch: str,
     schedule: str,
     pipeline_pass_language: bool,
     pipeline_template_path: str,
     dotnet_version: str,
     dotnet_entrypoint: str,
+    application_name: str,
+    apim_path: str,
+    ingress_host: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
         "app_name": app_name,
-        # path de APIM/automation: convencao do time (app_name sem o prefixo 'api-').
-        "app_path": app_name.removeprefix("api-"),
+        # applicationName/pathApiManagementService/host do ingress: perguntados no fluxo,
+        # com defaults derivados quando o usuario nao informa (ver executor/state_machine).
+        "application_name": application_name,
+        "apim_path": apim_path,
+        "ingress_host": ingress_host,
         "app_type": app_type.value,
         "language": language.value,
         "schedule": schedule,
@@ -195,6 +247,7 @@ def _build_template_context(
         "acr_name": acr_name,
         "devops_templates_repo_name": devops_templates_repo_name,
         "devops_templates_tag": devops_templates_tag,
+        "devops_templates_branch": devops_templates_branch,
         "container_port": defaults.container_port,
         "service_port": defaults.service_port,
         "health_path": defaults.health_path,
@@ -240,7 +293,7 @@ _BASE_CHARTS: dict[AppType, tuple[str, str, str]] = {
 
 
 # Raiz da chart e dos overrides por ambiente DENTRO do repo da aplicacao.
-_CHART_ROOT = "helm/manifests"
+_CHART_ROOT = "helm/base"
 _ENVIRONMENTS_ROOT = "helm/environments"
 
 
@@ -249,12 +302,12 @@ def render_helm_chart(
     context: dict[str, object],
     environments: list[str],
 ) -> list[ScaffoldedFile]:
-    """Renderiza o Helm chart (helm/manifests) + override por ambiente.
+    """Renderiza o Helm chart (helm/base) + override por ambiente.
 
     api/web/worker geram uma chart fina que DEPENDE de uma base chart do time
-    (microservice-chart/worker-chart) vendorizada descompactada em
-    helm/manifests/charts/<base>/, com values aninhados sob a chave da base
-    chart. cronjob (sem base chart) mantem o chart self-contained com templates.
+    (microservice-chart/worker-chart), empacotada em helm/base/charts/<base>-<ver>.tgz
+    com o Chart.lock correspondente, e values aninhados sob a chave da base chart.
+    cronjob (sem base chart) mantem o chart self-contained com templates.
     """
     base = _BASE_CHARTS.get(app_type)
     if base is None:
@@ -270,6 +323,10 @@ def _render_basechart_chart(
     name, version, kind = base
     ctx = {**context, "base_chart_name": name, "base_chart_version": version}
 
+    tgz_name = f"{name}-{version}.tgz"
+    tgz_bytes = (_VENDOR_DIR / tgz_name).read_bytes()
+    lock_text = (_VENDOR_DIR / f"{name}-{version}.lock").read_text(encoding="utf-8")
+
     files: list[ScaffoldedFile] = [
         ScaffoldedFile(
             path=f"{_CHART_ROOT}/Chart.yaml",
@@ -279,14 +336,23 @@ def _render_basechart_chart(
             path=f"{_CHART_ROOT}/values.yaml",
             content=_render_template(f"helm/basechart/{kind}/values.yaml.j2", ctx),
         ),
+        # Chart.lock + charts/<base>-<ver>.tgz vendorizados (par consistente do repo
+        # modelo): o digest do lock corresponde ao bloco de dependencies do Chart.yaml.
+        ScaffoldedFile(path=f"{_CHART_ROOT}/Chart.lock", content=lock_text),
+        ScaffoldedFile(
+            path=f"{_CHART_ROOT}/charts/{tgz_name}",
+            binary_b64=base64.b64encode(tgz_bytes).decode("ascii"),
+        ),
     ]
-    # Base chart vendorizada descompactada: o helm resolve a dependency declarada
-    # no Chart.yaml direto do diretorio charts/<base>/, sem Chart.lock nem .tgz.
-    for rel, content in _walk_static_helm_files(f"{_VENDOR_RELPATH}/{name}"):
-        files.append(ScaffoldedFile(path=f"{_CHART_ROOT}/charts/{name}/{rel}", content=content))
 
+    host_base = str(ctx["ingress_host"])
     for env in environments:
-        env_values = _render_template(f"environments/{kind}/values.yaml.j2", {**ctx, "env": env})
+        # Convencao da referencia: dev usa apenas os defaults da base chart -> arquivo vazio.
+        if env == "dev":
+            env_values = ""
+        else:
+            env_ctx = {**ctx, "env": env, **_ingress_hosts(host_base, env)}
+            env_values = _render_template(f"environments/{kind}/values.yaml.j2", env_ctx)
         files.append(
             ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
         )
@@ -338,16 +404,24 @@ def build_bundle(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    devops_templates_branch: str = DEFAULT_TEMPLATES_BRANCH,
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
+    application_name: str = "",
+    apim_path: str = "",
+    ingress_host: str = "",
     environments: list[str] | None = None,
 ) -> ScaffoldBundle:
     """Renderiza todos os artefatos em memoria."""
     envs = environments if environments is not None else list(DEFAULT_ENVIRONMENTS)
+    # Defaults derivados quando o usuario nao informa (mesma convencao do state_machine).
+    resolved_app = application_name or app_name
+    resolved_path = apim_path or default_apim_path(resolved_app)
+    resolved_host = ingress_host or default_ingress_host(resolved_path)
     ctx = _build_template_context(
         app_name=app_name,
         app_type=app_type,
@@ -357,11 +431,15 @@ def build_bundle(
         acr_name=acr_name,
         devops_templates_repo_name=devops_templates_repo_name,
         devops_templates_tag=devops_templates_tag,
+        devops_templates_branch=devops_templates_branch,
         schedule=schedule,
         pipeline_pass_language=pipeline_pass_language,
         pipeline_template_path=pipeline_template_path,
         dotnet_version=dotnet_version,
         dotnet_entrypoint=dotnet_entrypoint,
+        application_name=resolved_app,
+        apim_path=resolved_path,
+        ingress_host=resolved_host,
     )
 
     files = [
@@ -385,12 +463,16 @@ def dry_run(
     acr_name: str,
     devops_templates_repo_name: str,
     devops_templates_tag: str,
+    devops_templates_branch: str = DEFAULT_TEMPLATES_BRANCH,
     language: Language = Language.DOTNET,
     schedule: str = DEFAULT_CRON_SCHEDULE,
     pipeline_pass_language: bool = False,
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
+    application_name: str = "",
+    apim_path: str = "",
+    ingress_host: str = "",
     environments: list[str] | None = None,
     existing_repo_paths: set[str] | None = None,
 ) -> ToolResult[DryRunResult]:
@@ -405,11 +487,15 @@ def dry_run(
             acr_name=acr_name,
             devops_templates_repo_name=devops_templates_repo_name,
             devops_templates_tag=devops_templates_tag,
+            devops_templates_branch=devops_templates_branch,
             schedule=schedule,
             pipeline_pass_language=pipeline_pass_language,
             pipeline_template_path=pipeline_template_path,
             dotnet_version=dotnet_version,
             dotnet_entrypoint=dotnet_entrypoint,
+            application_name=application_name,
+            apim_path=apim_path,
+            ingress_host=ingress_host,
             environments=environments,
         )
     except Exception as exc:  # noqa: BLE001 - tools nunca propagam excecao

@@ -11,12 +11,16 @@ from dataclasses import dataclass
 
 from devops_agent.config import Settings
 from devops_agent.models import AppType, Language, Phase, SessionState
+from devops_agent.tools.scaffold import default_apim_path, default_ingress_host
 from devops_agent.tools.validation import (
+    validate_apim_path,
     validate_app_type,
+    validate_application_name,
     validate_branch_name,
     validate_cron_schedule,
     validate_dotnet_entrypoint,
     validate_dotnet_version,
+    validate_ingress_host,
     validate_k8s_namespace,
     validate_language,
     validate_repo_url,
@@ -44,6 +48,19 @@ _QUESTIONS = {
     Phase.ASK_DOTNET_ENTRYPOINT: (
         "Qual o assembly de entrada (.dll)? Ex.: ePharma.Authentication.Services.dll "
         "(enter usa {app_name}.dll)."
+    ),
+    Phase.ASK_APPLICATION_NAME: (
+        "Qual o applicationName (nome curto da aplicacao)? Ex.: api-utils "
+        "(enter usa o nome do repositorio)."
+    ),
+    Phase.ASK_APIM_PATH: (
+        "Qual o pathApiManagementService (path no APIM)? Ex.: utils "
+        "(enter deriva do applicationName, sem o prefixo 'api-')."
+    ),
+    Phase.ASK_INGRESS_HOST: (
+        "Qual o host base do ingress? Ex.: servicesutils "
+        "(o dominio .k8s.<ambiente>.epharma.com.br e adicionado automaticamente; "
+        "enter deriva de 'services<path>')."
     ),
 }
 
@@ -127,12 +144,12 @@ def handle_app_type(session: SessionState, user_input: str) -> StepResult:
     session.app_type = result.data
 
     # web e sempre uma SPA estatica (build Node -> nginx); nao detectamos linguagem.
+    # Usa o microservice-chart (com ingresses), entao ainda perguntamos o host.
     if result.data == AppType.WEB:
-        session.phase = Phase.VALIDATE
+        session.phase = Phase.ASK_INGRESS_HOST
         return StepResult(
-            next_phase=Phase.VALIDATE,
-            message_to_user=f"Tipo: {result.data.value}\nValidando inputs...",
-            awaits_input=False,
+            next_phase=Phase.ASK_INGRESS_HOST,
+            message_to_user=f"Tipo: {result.data.value}\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
         )
 
     # cronjob precisa do agendamento antes de prosseguir.
@@ -234,11 +251,10 @@ def handle_dotnet_version(session: SessionState, user_input: str) -> StepResult:
 def handle_dotnet_entrypoint(session: SessionState, user_input: str) -> StepResult:
     # Entrada vazia mantem o default do scaffold (app_name.dll).
     if not user_input.strip():
-        session.phase = Phase.VALIDATE
+        session.phase = Phase.ASK_APPLICATION_NAME
         return StepResult(
-            next_phase=Phase.VALIDATE,
-            message_to_user="Usando o assembly padrao.\nValidando inputs...",
-            awaits_input=False,
+            next_phase=Phase.ASK_APPLICATION_NAME,
+            message_to_user="Usando o assembly padrao.\n" + _QUESTIONS[Phase.ASK_APPLICATION_NAME],
         )
 
     result = validate_dotnet_entrypoint(user_input)
@@ -250,10 +266,103 @@ def handle_dotnet_entrypoint(session: SessionState, user_input: str) -> StepResu
         )
 
     session.dotnet_entrypoint = result.data
+    session.phase = Phase.ASK_APPLICATION_NAME
+    return StepResult(
+        next_phase=Phase.ASK_APPLICATION_NAME,
+        message_to_user=f"Entrypoint: {result.data}\n" + _QUESTIONS[Phase.ASK_APPLICATION_NAME],
+    )
+
+
+def _after_application_name(session: SessionState) -> StepResult:
+    """Apos o applicationName: api pergunta o path do APIM; os demais validam direto."""
+    if session.app_type == AppType.API:
+        session.phase = Phase.ASK_APIM_PATH
+        return StepResult(
+            next_phase=Phase.ASK_APIM_PATH,
+            message_to_user=_QUESTIONS[Phase.ASK_APIM_PATH],
+        )
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
-        message_to_user=f"Entrypoint: {result.data}\nValidando inputs...",
+        message_to_user="Validando inputs...",
+        awaits_input=False,
+    )
+
+
+def handle_application_name(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia usa o nome do repositorio (app_name).
+    if not user_input.strip():
+        session.application_name = session.app_name
+        return _after_application_name(session)
+
+    result = validate_application_name(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_APPLICATION_NAME,
+            message_to_user=result.error or "applicationName invalido.",
+            error=result.error,
+        )
+
+    session.application_name = result.data
+    return _after_application_name(session)
+
+
+def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
+    application_name = session.application_name or session.app_name or ""
+    # Entrada vazia deriva do applicationName (sem o prefixo 'api-').
+    if not user_input.strip():
+        session.apim_path = default_apim_path(application_name)
+        session.phase = Phase.ASK_INGRESS_HOST
+        return StepResult(
+            next_phase=Phase.ASK_INGRESS_HOST,
+            message_to_user=f"Path do APIM: {session.apim_path}\n"
+            + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+        )
+
+    result = validate_apim_path(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_APIM_PATH,
+            message_to_user=result.error or "pathApiManagementService invalido.",
+            error=result.error,
+        )
+
+    session.apim_path = result.data
+    session.phase = Phase.ASK_INGRESS_HOST
+    return StepResult(
+        next_phase=Phase.ASK_INGRESS_HOST,
+        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+    )
+
+
+def handle_ingress_host(session: SessionState, user_input: str) -> StepResult:
+    # Base para derivar o default do host quando a entrada e vazia.
+    base_path = session.apim_path or default_apim_path(
+        session.application_name or session.app_name or ""
+    )
+    # Entrada vazia deriva de 'services<path>'.
+    if not user_input.strip():
+        session.ingress_host = default_ingress_host(base_path)
+        session.phase = Phase.VALIDATE
+        return StepResult(
+            next_phase=Phase.VALIDATE,
+            message_to_user=f"Host do ingress: {session.ingress_host}\nValidando inputs...",
+            awaits_input=False,
+        )
+
+    result = validate_ingress_host(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_INGRESS_HOST,
+            message_to_user=result.error or "Host invalido.",
+            error=result.error,
+        )
+
+    session.ingress_host = result.data
+    session.phase = Phase.VALIDATE
+    return StepResult(
+        next_phase=Phase.VALIDATE,
+        message_to_user=f"Host do ingress: {result.data}\nValidando inputs...",
         awaits_input=False,
     )
 

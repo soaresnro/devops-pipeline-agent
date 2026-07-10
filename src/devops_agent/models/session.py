@@ -23,6 +23,9 @@ class Phase(StrEnum):
     ASK_LANGUAGE = "ask_language"
     ASK_DOTNET_VERSION = "ask_dotnet_version"
     ASK_DOTNET_ENTRYPOINT = "ask_dotnet_entrypoint"
+    ASK_APPLICATION_NAME = "ask_application_name"
+    ASK_APIM_PATH = "ask_apim_path"
+    ASK_INGRESS_HOST = "ask_ingress_host"
     VALIDATE = "validate"
     CONFIRM = "confirm"
     EXECUTE = "execute"
@@ -60,6 +63,9 @@ class SessionState(BaseModel):
     schedule: str | None = None  # cron do CronJob; None usa o default do scaffold
     dotnet_version: str | None = None  # versao .NET; None usa o default do scaffold
     dotnet_entrypoint: str | None = None  # assembly de entrada; None usa app_name.dll
+    application_name: str | None = None  # applicationName da pipeline; None usa app_name
+    apim_path: str | None = None  # pathApiManagementService; None deriva de application_name
+    ingress_host: str | None = None  # host base do ingress; None deriva de apim_path
 
     confirmed: bool = False
     execution: ExecutionResult | None = None

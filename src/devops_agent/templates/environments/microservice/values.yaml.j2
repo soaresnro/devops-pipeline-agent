@@ -1,29 +1,50 @@
-# Override de {{ app_name }} para o ambiente {{ env }} (aninhado sob microservice-chart).
-# Skeleton - ATUALIZE hosts, secrets, clientId da workload identity e env conforme o ambiente.
+# Override de {{ application_name }} para o ambiente {{ env }} (aninhado sob microservice-chart).
+# Skeleton no modelo do time - ATUALIZE clientId da workload identity e env conforme o
+# ambiente. Os hosts/secrets seguem a convencao epharma (dominio derivado por ambiente);
+# ajuste se o servico usar outro dominio.
 microservice-chart:
   image:
-    repository: "acraks{{ env }}eastus.azurecr.io/{{ app_name }}"  # ATUALIZE se o nome da imagem diferir
+    repository: "acraks{{ env }}eastus.azurecr.io/{{ app_name }}"
     pullPolicy: IfNotPresent
     tag: "__imageTag__"  # substituido pela pipeline
 
   ingresses:
-    - name: {{ app_name }}
+    - name: {{ application_name }}
       enabled: true
       className: private-nginx
       tls:
         - hosts:
-            - {{ app_name }}.{{ env }}.epharma.com.br  # ATUALIZE com o host real
-          secretName: cert-wildcard-tls  # ATUALIZE
+            - {{ ingress_primary_host }}
+          secretName: {{ ingress_primary_secret }}
       rules:
-        - host: {{ app_name }}.{{ env }}.epharma.com.br
+        - host: {{ ingress_primary_host }}
           paths:
             - path: /
               pathType: Prefix
               port: 8080
 
+    - name: {{ application_name }}-legacy
+      enabled: true
+      className: private-legacy-nginx
+      tls:
+        - hosts:
+            - {{ ingress_legacy_host }}
+          secretName: {{ ingress_legacy_secret }}
+      rules:
+        - host: {{ ingress_legacy_host }}
+          paths:
+            - path: /
+              pathType: Prefix
+              port: 8080
+
+  replicaCount: 1
+
+  pdb:
+    enabled: false
+
   serviceAccount:
     create: true
-    name: sa-{{ app_name }}
+    name: sa-{{ application_name }}
 
   workloadIdentity:
     clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
@@ -31,3 +52,35 @@ microservice-chart:
   environment: {{ env }}
 
   env: {}  # ATUALIZE com as variaveis da aplicacao
+
+  autoscaling:
+    enabled: false
+
+    minReplicas: 2
+    maxReplicas: 3
+
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 70
+
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 30
+        selectPolicy: Max
+
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+
+          - type: Pods
+            value: 3
+            periodSeconds: 60
+
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Max
+
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 60

@@ -22,6 +22,7 @@ class TestPipelineStack:
         # web ignora a linguagem; nao usa o stack dotnet
         assert _pipeline_stack(AppType.WEB, Language.DOTNET) == "_default"
 
+
 @pytest.fixture
 def base_ctx() -> dict[str, object]:
     return {
@@ -46,8 +47,8 @@ class TestBuildBundle:
         paths = bundle.all_paths
         assert "Dockerfile" in paths
         assert "azure-pipelines.yaml" in paths
-        assert "helm/manifests/Chart.yaml" in paths
-        assert "helm/manifests/values.yaml" in paths
+        assert "helm/base/Chart.yaml" in paths
+        assert "helm/base/values.yaml" in paths
 
     @pytest.mark.parametrize("app_type", [AppType.API, AppType.WEB, AppType.WORKER])
     def test_base_chart_apps_sao_charts_finas_com_dependency(
@@ -58,16 +59,17 @@ class TestBuildBundle:
         # api/web/worker: chart fina (Chart.yaml + values.yaml), SEM templates proprios
         bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
         paths = set(bundle.all_paths)
-        chart_root = "helm/manifests"
+        chart_root = "helm/base"
         assert f"{chart_root}/Chart.yaml" in paths
         assert f"{chart_root}/values.yaml" in paths
         assert not any(p.startswith(f"{chart_root}/templates/") for p in paths)
-        # Chart.yaml declara dependency na base chart vendorizada (sem repository:
-        # o helm resolve do diretorio charts/<base>/)
+        # Chart.yaml declara dependency na base chart com repository apontando para o
+        # repo do time (AksHelmBaseCharts); o helm resolve pelo .tgz em charts/.
         chart = next(f for f in bundle.files if f.path == f"{chart_root}/Chart.yaml")
         dep = yaml.safe_load(chart.content)["dependencies"][0]
         assert dep["name"] in ("microservice-chart", "worker-chart")
-        assert "repository" not in dep
+        assert dep["repository"].startswith("file://")
+        assert "AksHelmBaseCharts" in dep["repository"]
 
     @pytest.mark.parametrize(
         ("app_type", "base_chart"),
@@ -81,81 +83,65 @@ class TestBuildBundle:
         self, app_type: AppType, base_chart: str, base_ctx: dict[str, object]
     ) -> None:
         bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
-        chart = next(f for f in bundle.files if f.path == "helm/manifests/Chart.yaml")
+        chart = next(f for f in bundle.files if f.path == "helm/base/Chart.yaml")
         assert yaml.safe_load(chart.content)["dependencies"][0]["name"] == base_chart
 
     def test_cronjob_e_self_contained(self, base_ctx: dict[str, object]) -> None:
         # cronjob nao tem base chart -> mantem o chart self-contained com templates
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
         paths = set(bundle.all_paths)
-        chart_root = "helm/manifests"
+        chart_root = "helm/base"
         assert f"{chart_root}/templates/cronjob.yaml" in paths
         assert f"{chart_root}/templates/_helpers.tpl" in paths
         assert f"{chart_root}/templates/serviceaccount.yaml" in paths
 
 
 class TestVendoredBaseChart:
-    """A chart fina vendoriza a base chart DESCOMPACTADA em charts/<base>/ (arquivos
-    puros, sem .tgz nem Chart.lock), para que `helm` resolva a dependency do diretorio."""
+    """A chart fina vendoriza a base chart EMPACOTADA em charts/<base>-<ver>.tgz + o
+    Chart.lock correspondente (par consistente do repo modelo), para que o helm resolva a
+    dependency declarada no Chart.yaml a partir do .tgz."""
 
     @pytest.mark.parametrize(
-        ("app_type", "base_chart"),
+        ("app_type", "base_chart", "version"),
         [
-            (AppType.API, "microservice-chart"),
-            (AppType.WEB, "microservice-chart"),
-            (AppType.WORKER, "worker-chart"),
+            (AppType.API, "microservice-chart", "0.4.4"),
+            (AppType.WEB, "microservice-chart", "0.4.4"),
+            (AppType.WORKER, "worker-chart", "1.0.0"),
         ],
     )
-    def test_emite_base_chart_descompactada(
-        self, app_type: AppType, base_chart: str, base_ctx: dict[str, object]
+    def test_emite_tgz_e_chart_lock(
+        self, app_type: AppType, base_chart: str, version: str, base_ctx: dict[str, object]
     ) -> None:
         bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
         paths = set(bundle.all_paths)
-        base_root = f"helm/manifests/charts/{base_chart}"
-        assert f"{base_root}/Chart.yaml" in paths
-        assert f"{base_root}/values.yaml" in paths
-        assert f"{base_root}/templates/_helpers.tpl" in paths
-        assert f"{base_root}/templates/deployment.yaml" in paths
+        assert f"helm/base/charts/{base_chart}-{version}.tgz" in paths
+        assert "helm/base/Chart.lock" in paths
 
-    def test_base_chart_contem_manifests_reais_sem_renderizar(
-        self, base_ctx: dict[str, object]
-    ) -> None:
+    def test_tgz_e_binario_e_nao_vazio(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
-        paths = set(bundle.all_paths)
-        base_root = "helm/manifests/charts/microservice-chart"
-        assert f"{base_root}/templates/service.yaml" in paths
-        assert f"{base_root}/templates/ingress.yaml" in paths
-        # os templates da base chart sao copiados verbatim: a sintaxe Helm ({{ ... }})
-        # nao pode ter passado pelo Jinja do scaffold
-        deployment = next(
-            f for f in bundle.files if f.path == f"{base_root}/templates/deployment.yaml"
-        )
-        assert "{{" in deployment.content
+        tgz = next(f for f in bundle.files if f.path.endswith(".tgz"))
+        assert tgz.is_binary
+        assert tgz.binary_b64
+        assert tgz.content == ""
 
-    def test_versao_da_base_chart_casa_com_a_dependency(
+    def test_versao_do_tgz_e_lock_casam_com_a_dependency(
         self, base_ctx: dict[str, object]
     ) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
-        chart = next(f for f in bundle.files if f.path == "helm/manifests/Chart.yaml")
-        base = next(
-            f for f in bundle.files if f.path == "helm/manifests/charts/worker-chart/Chart.yaml"
-        )
+        chart = next(f for f in bundle.files if f.path == "helm/base/Chart.yaml")
+        lock = next(f for f in bundle.files if f.path == "helm/base/Chart.lock")
         chart_dep = yaml.safe_load(chart.content)["dependencies"][0]
-        base_meta = yaml.safe_load(base.content)
-        assert base_meta["name"] == chart_dep["name"] == "worker-chart"
-        assert base_meta["version"] == chart_dep["version"] == "1.0.0"
-
-    @pytest.mark.parametrize("app_type", list(AppType))
-    def test_nao_emite_tgz_nem_chart_lock(
-        self, app_type: AppType, base_ctx: dict[str, object]
-    ) -> None:
-        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
-        assert not any(f.path.endswith(".tgz") for f in bundle.files)
-        assert not any(f.path.endswith("/Chart.lock") for f in bundle.files)
+        lock_dep = yaml.safe_load(lock.content)["dependencies"][0]
+        assert chart_dep["name"] == lock_dep["name"] == "worker-chart"
+        assert chart_dep["version"] == lock_dep["version"] == "1.0.0"
+        # o .tgz emitido usa a mesma versao
+        assert "helm/base/charts/worker-chart-1.0.0.tgz" in bundle.all_paths
 
     def test_cronjob_nao_vendoriza_base_chart(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
-        assert not any(p.startswith("helm/manifests/charts/") for p in bundle.all_paths)
+        assert not any(p.startswith("helm/base/charts/") for p in bundle.all_paths)
+        assert not any(f.path.endswith(".tgz") for f in bundle.files)
+        assert "helm/base/Chart.lock" not in bundle.all_paths
 
 
 class TestEnvironments:
@@ -174,29 +160,64 @@ class TestEnvironments:
         assert "helm/environments/prod/values.yaml" in paths
         assert "helm/environments/qa/values.yaml" not in paths
 
-    def test_override_microservice_skeleton(self, base_ctx: dict[str, object]) -> None:
+    def test_dev_values_e_vazio(self, base_ctx: dict[str, object]) -> None:
+        # convencao da referencia: dev usa apenas os defaults da base chart -> arquivo vazio
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        dev = next(
+            f for f in bundle.files if f.path == "helm/environments/dev/values.yaml"
+        )
+        assert dev.content == ""
+
+    def test_override_microservice_skeleton_dois_ingresses(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            application_name="api-utils",
+            apim_path="utils",
+            ingress_host="servicesutils",
+            **base_ctx,  # type: ignore[arg-type]
+        )
         ev = next(
-            f for f in bundle.files
-            if f.path == "helm/environments/prod/values.yaml"
+            f for f in bundle.files if f.path == "helm/environments/qa/values.yaml"
         )
         mc = yaml.safe_load(ev.content)["microservice-chart"]
         # registry por ambiente + tag placeholder substituida pela pipeline
-        assert mc["image"]["repository"] == "acraksprodeastus.azurecr.io/payments-api"
+        assert mc["image"]["repository"] == "acraksqaeastus.azurecr.io/payments-api"
         assert mc["image"]["tag"] == "__imageTag__"
-        assert mc["environment"] == "prod"
-        # api/web tem ingresses no override
-        assert mc["ingresses"][0]["name"] == "payments-api"
-        assert mc["serviceAccount"]["name"] == "sa-payments-api"
+        assert mc["environment"] == "qa"
+        # dois ingresses (primary private-nginx + legacy private-legacy-nginx) com hosts derivados
+        assert len(mc["ingresses"]) == 2
+        primary, legacy = mc["ingresses"]
+        assert primary["name"] == "api-utils"
+        assert primary["className"] == "private-nginx"
+        assert primary["rules"][0]["host"] == "servicesutils.k8s.qa.epharma.com.br"
+        assert legacy["name"] == "api-utils-legacy"
+        assert legacy["className"] == "private-legacy-nginx"
+        assert legacy["rules"][0]["host"] == "servicesutilsqa.epharma.com.br"
+        assert mc["serviceAccount"]["name"] == "sa-api-utils"
+
+    def test_prod_omite_segmento_de_ambiente_no_host(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, ingress_host="servicesutils", **base_ctx  # type: ignore[arg-type]
+        )
+        ev = next(
+            f for f in bundle.files if f.path == "helm/environments/prod/values.yaml"
+        )
+        mc = yaml.safe_load(ev.content)["microservice-chart"]
+        assert mc["ingresses"][0]["rules"][0]["host"] == "servicesutils.k8s.epharma.com.br"
+        assert mc["ingresses"][1]["rules"][0]["host"] == "servicesutils.epharma.com.br"
 
     def test_override_worker_sem_ingresses(self, base_ctx: dict[str, object]) -> None:
+        # worker usa o worker-chart e um env nao-dev (dev e vazio para todos os tipos)
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
         ev = next(
-            f for f in bundle.files
-            if f.path == "helm/environments/dev/values.yaml"
+            f for f in bundle.files if f.path == "helm/environments/prod/values.yaml"
         )
         wc = yaml.safe_load(ev.content)["worker-chart"]
-        assert wc["image"]["repository"] == "acraksdeveastus.azurecr.io/payments-api"
+        assert wc["image"]["repository"] == "acraksprodeastus.azurecr.io/payments-api"
         assert "ingresses" not in wc
 
 
@@ -217,46 +238,70 @@ class TestRenderedContent:
             "feature/*",
         ]
         repos = {r["repository"]: r for r in parsed["resources"]["repositories"]}
-        # templates SEM ref (usa branch default do repo, nao tag)
-        assert "ref" not in repos["templates"]
+        # templates referenciado por branch (contrato template-aks usa refs/heads/master)
+        assert repos["templates"]["ref"] == "refs/heads/master"
         assert repos["templates"]["name"] == "Platform/devops-templates"
         # o Helm vive no proprio repo da app: sem resource manifests
         assert "manifests" not in repos
         assert parsed["pool"]["name"] == "agt_pool_linux_vmss"
         var_groups = [v["group"] for v in parsed["variables"] if "group" in v]
         assert "Sonarqube" in var_groups and "k8s-prod" in var_groups
-        # alias @templates, sem tag
+        # alias @templates
         assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@templates"
+
+    def test_pipeline_dotnet_ref_branch_configuravel(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, devops_templates_branch="release/aks", **base_ctx  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
+        repos = {
+            r["repository"]: r
+            for r in yaml.safe_load(pipeline.content)["resources"]["repositories"]
+        }
+        assert repos["templates"]["ref"] == "refs/heads/release/aks"
 
     def test_pipeline_dotnet_params(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(
-            app_type=AppType.API, dotnet_version="9.0.x", **base_ctx  # type: ignore[arg-type]
+            app_type=AppType.API,
+            dotnet_version="9.0.x",
+            application_name="api-utils",
+            apim_path="utils",
+            **base_ctx,  # type: ignore[arg-type]
         )
         pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
         params = yaml.safe_load(pipeline.content)["extends"]["parameters"]
-        assert params["applicationName"] == "payments-api"
+        assert params["applicationName"] == "api-utils"
         assert params["namespace"] == "payments-prod"
         assert params["ApplicationType"] == "dotnet"
         assert params["projectType"] == "webapi"
         assert params["dotNetVersion"] == "9.0.x"
-        assert params["deployAKS"] is True
-        assert params["deployAppService"] is False
+        # contrato template-aks: enableApim no lugar de deployAKS/deployAppService
+        assert params["enableApim"] is True
+        assert "deployAKS" not in params
+        assert "deployAppService" not in params
+        assert "pathAutomation" not in params
         assert params["deploymentStrategy"] == "rolling"
-        # imageName = app_name (lowercase) para nome de repositorio Docker valido e
-        # consistente com o image.repository do Helm.
-        assert params["imageName"] == "payments-api"
+        assert params["pathApiManagementService"] == "utils"
+        # imageName = macro do repo (modelo real do time)
+        assert params["imageName"] == "$(Build.Repository.Name)"
         assert params["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
         assert "appType" not in params
 
-    def test_pipeline_dotnet_app_path_remove_prefixo_api(
-        self, base_ctx: dict[str, object]
-    ) -> None:
+    def test_pipeline_dotnet_defaults_derivados(self, base_ctx: dict[str, object]) -> None:
+        # sem application_name/apim_path informados: applicationName = app_name e
+        # pathApiManagementService = app_name sem o prefixo 'api-'
         ctx = {**base_ctx, "app_name": "api-authentication"}
         bundle = build_bundle(app_type=AppType.API, **ctx)  # type: ignore[arg-type]
         pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
         params = yaml.safe_load(pipeline.content)["extends"]["parameters"]
+        assert params["applicationName"] == "api-authentication"
         assert params["pathApiManagementService"] == "authentication"
-        assert params["pathAutomation"] == "authentication"
+
+    def test_pipeline_worker_dotnet_desativa_apim(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
+        params = yaml.safe_load(pipeline.content)["extends"]["parameters"]
+        assert params["enableApim"] is False
 
     def test_pipeline_default_para_linguagem_nao_dotnet(
         self, base_ctx: dict[str, object]
@@ -289,6 +334,16 @@ class TestRenderedContent:
         pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
         parsed = yaml.safe_load(pipeline.content)
         assert parsed["extends"]["template"] == "pipelines/go-k8s-app.yaml@devops-templates"
+
+    def test_pipeline_default_helm_chart_path_helm_base(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.GO, **base_ctx  # type: ignore[arg-type]
+        )
+        pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
+        parsed = yaml.safe_load(pipeline.content)
+        assert parsed["extends"]["parameters"]["helmChartPath"] == "helm/base"
 
     def test_pipeline_nao_passa_language_por_padrao(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
@@ -323,7 +378,7 @@ class TestRenderedContent:
 
     def test_chart_yaml_e_yaml_valido(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
-        chart = next(f for f in bundle.files if f.path == "helm/manifests/Chart.yaml")
+        chart = next(f for f in bundle.files if f.path == "helm/base/Chart.yaml")
         parsed = yaml.safe_load(chart.content)
         assert parsed["name"] == "payments-api"
         assert parsed["apiVersion"] == "v2"
@@ -331,7 +386,7 @@ class TestRenderedContent:
     def test_values_base_microservice_api_web(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         values = next(
-            f for f in bundle.files if f.path == "helm/manifests/values.yaml"
+            f for f in bundle.files if f.path == "helm/base/values.yaml"
         )
         mc = yaml.safe_load(values.content)["microservice-chart"]
         assert mc["strategy"]["type"] == "RollingUpdate"
@@ -342,7 +397,7 @@ class TestRenderedContent:
     def test_values_base_worker(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
         values = next(
-            f for f in bundle.files if f.path == "helm/manifests/values.yaml"
+            f for f in bundle.files if f.path == "helm/base/values.yaml"
         )
         wc = yaml.safe_load(values.content)["worker-chart"]
         assert wc["strategy"]["type"] == "Recreate"
@@ -355,7 +410,7 @@ class TestRenderedContent:
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
         values = next(
-            f for f in bundle.files if f.path == "helm/manifests/values.yaml"
+            f for f in bundle.files if f.path == "helm/base/values.yaml"
         )
         parsed = yaml.safe_load(values.content)
         assert "service" not in parsed
@@ -373,7 +428,7 @@ class TestRenderedContent:
     ) -> None:
         bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
         values = next(
-            f for f in bundle.files if f.path == "helm/manifests/values.yaml"
+            f for f in bundle.files if f.path == "helm/base/values.yaml"
         )
         parsed = yaml.safe_load(values.content)
         assert parsed["cronjob"]["schedule"] == "0 * * * *"
@@ -386,7 +441,7 @@ class TestRenderedContent:
             app_type=AppType.CRONJOB, schedule="30 3 * * 1", **base_ctx  # type: ignore[arg-type]
         )
         values = next(
-            f for f in bundle.files if f.path == "helm/manifests/values.yaml"
+            f for f in bundle.files if f.path == "helm/base/values.yaml"
         )
         parsed = yaml.safe_load(values.content)
         assert parsed["cronjob"]["schedule"] == "30 3 * * 1"
@@ -405,6 +460,13 @@ class TestRenderedContent:
         bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
         df = next(f for f in bundle.files if f.path == "Dockerfile")
         assert "EXPOSE 8080" in df.content
+
+    def test_dockerfile_dotnet_globalizacao_e_icu(self, base_ctx: dict[str, object]) -> None:
+        # modelo do time: icu-libs + globalization nao-invariante para culturas/ICU
+        bundle = build_bundle(app_type=AppType.API, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "icu-libs" in df
+        assert "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false" in df
 
     def test_dockerfile_worker_sem_expose(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
@@ -527,12 +589,12 @@ class TestDryRun:
     def test_detecta_colisao_nos_arquivos_do_helm(self, base_ctx: dict[str, object]) -> None:
         r = dry_run(
             app_type=AppType.API,
-            existing_repo_paths={"helm/manifests/Chart.yaml"},
+            existing_repo_paths={"helm/base/Chart.yaml"},
             **base_ctx,  # type: ignore[arg-type]
         )
         assert r.ok
         assert r.data is not None
-        assert "helm/manifests/Chart.yaml" in r.data.collisions
+        assert "helm/base/Chart.yaml" in r.data.collisions
 
     def test_normalizacao_de_path_evita_falso_negativo(
         self,

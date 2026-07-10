@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     devops_templates_repo_url: str
     devops_templates_tag: str = "v1"
+    # Branch do repo de templates referenciada pelo stack dotnet (contrato template-aks,
+    # que usa refs/heads/master). O stack _default continua pinado por tag.
+    devops_templates_branch: str = "master"
     # Template de pipeline (no devops-templates) por linguagem detectada. Quando uma
     # linguagem nao tem caminho proprio, usa devops_template_default. web reaproveita
     # o de node (build Node -> nginx).

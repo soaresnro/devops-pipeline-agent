@@ -162,8 +162,8 @@ class TestGitOps:
         files = [
             ScaffoldedFile(path="texto.txt", content="ola\n"),
             ScaffoldedFile(
-                path="helm/manifests/charts/microservice-chart/templates/deployment.yaml",
-                content="kind: Deployment\n",
+                path="helm/base/Chart.yaml",
+                content="apiVersion: v2\n",
             ),
         ]
         with temp_workspace() as ws:
@@ -171,12 +171,28 @@ class TestGitOps:
             assert cr.ok and cr.data is not None
             wr = write_files(cr.data, files)
             assert wr.ok and wr.data == 2
-            nested = (
-                cr.data / "helm" / "manifests" / "charts" / "microservice-chart"
-                / "templates" / "deployment.yaml"
-            )
-            assert nested.read_text(encoding="utf-8") == "kind: Deployment\n"
+            nested = cr.data / "helm" / "base" / "Chart.yaml"
+            assert nested.read_text(encoding="utf-8") == "apiVersion: v2\n"
             assert (cr.data / "texto.txt").read_text(encoding="utf-8") == "ola\n"
+
+    def test_write_files_escreve_binario_por_bytes(self, fake_remote: Path) -> None:
+        import base64
+
+        # bytes com um NUL e um byte alto (0xFF): so passam intactos via write_bytes.
+        raw = b"\x1f\x8b\x08\x00binary\x00\xff"
+        files = [
+            ScaffoldedFile(
+                path="helm/base/charts/microservice-chart-0.4.4.tgz",
+                binary_b64=base64.b64encode(raw).decode("ascii"),
+            ),
+        ]
+        with temp_workspace() as ws:
+            cr = clone_shallow(ws, key="app", clone_url=fake_remote.as_uri(), branch="main")
+            assert cr.ok and cr.data is not None
+            wr = write_files(cr.data, files)
+            assert wr.ok and wr.data == 1
+            tgz = cr.data / "helm" / "base" / "charts" / "microservice-chart-0.4.4.tgz"
+            assert tgz.read_bytes() == raw
 
     def test_commit_sem_mudancas_falha(self, fake_remote: Path) -> None:
         with temp_workspace() as ws:

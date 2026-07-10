@@ -23,11 +23,12 @@ class TestHandleAppType:
         assert session.phase == Phase.DETECT_LANGUAGE
         assert step.next_phase == Phase.DETECT_LANGUAGE
 
-    def test_web_pula_deteccao_e_vai_para_validate(self, session: SessionState) -> None:
+    def test_web_pula_deteccao_e_vai_para_ask_ingress_host(self, session: SessionState) -> None:
+        # web usa o microservice-chart (com ingresses), entao pergunta o host antes de validar
         step = sm.handle_app_type(session, "web")
         assert not step.error
         assert session.app_type == AppType.WEB
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_INGRESS_HOST
         assert session.language is None
 
     def test_cronjob_vai_para_ask_schedule(self, session: SessionState) -> None:
@@ -120,19 +121,19 @@ class TestHandleDotnetVersion:
 
 
 class TestHandleDotnetEntrypoint:
-    def test_entrypoint_valido_vai_para_validate(self, session: SessionState) -> None:
+    def test_entrypoint_valido_vai_para_ask_application_name(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_ENTRYPOINT
         step = sm.handle_dotnet_entrypoint(session, "ePharma.Auth.Services")
         assert not step.error
         assert session.dotnet_entrypoint == "ePharma.Auth.Services.dll"  # .dll adicionado
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_APPLICATION_NAME
 
-    def test_vazio_mantem_default_e_valida(self, session: SessionState) -> None:
+    def test_vazio_mantem_default_e_pergunta_application_name(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_ENTRYPOINT
         step = sm.handle_dotnet_entrypoint(session, "")
         assert not step.error
         assert session.dotnet_entrypoint is None  # default app_name.dll no scaffold
-        assert session.phase == Phase.VALIDATE
+        assert session.phase == Phase.ASK_APPLICATION_NAME
 
     def test_invalido_permanece(self, session: SessionState) -> None:
         session.phase = Phase.ASK_DOTNET_ENTRYPOINT
@@ -140,3 +141,81 @@ class TestHandleDotnetEntrypoint:
         assert step.error
         assert step.next_phase == Phase.ASK_DOTNET_ENTRYPOINT
         assert session.dotnet_entrypoint is None
+
+
+class TestHandleApplicationName:
+    def test_valido_api_vai_para_apim_path(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "api-utils")
+        assert not step.error
+        assert session.application_name == "api-utils"
+        assert session.phase == Phase.ASK_APIM_PATH
+
+    def test_vazio_usa_app_name(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.app_name = "epharma-api-utils"
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "")
+        assert not step.error
+        assert session.application_name == "epharma-api-utils"
+        assert session.phase == Phase.ASK_APIM_PATH
+
+    def test_worker_pula_apim_e_vai_para_validate(self, session: SessionState) -> None:
+        session.app_type = AppType.WORKER
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "billing-worker")
+        assert not step.error
+        assert session.phase == Phase.VALIDATE
+
+    def test_invalido_permanece(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "Nome Invalido!")
+        assert step.error
+        assert step.next_phase == Phase.ASK_APPLICATION_NAME
+        assert session.application_name is None
+
+
+class TestHandleApimPath:
+    def test_valido_vai_para_ingress_host(self, session: SessionState) -> None:
+        session.application_name = "api-utils"
+        session.phase = Phase.ASK_APIM_PATH
+        step = sm.handle_apim_path(session, "utils")
+        assert not step.error
+        assert session.apim_path == "utils"
+        assert session.phase == Phase.ASK_INGRESS_HOST
+
+    def test_vazio_deriva_do_application_name(self, session: SessionState) -> None:
+        session.application_name = "api-utils"
+        session.phase = Phase.ASK_APIM_PATH
+        step = sm.handle_apim_path(session, "")
+        assert not step.error
+        assert session.apim_path == "utils"  # remove o prefixo 'api-'
+        assert session.phase == Phase.ASK_INGRESS_HOST
+
+
+class TestHandleIngressHost:
+    def test_valido_vai_para_validate(self, session: SessionState) -> None:
+        session.apim_path = "utils"
+        session.phase = Phase.ASK_INGRESS_HOST
+        step = sm.handle_ingress_host(session, "servicesutils")
+        assert not step.error
+        assert session.ingress_host == "servicesutils"
+        assert session.phase == Phase.VALIDATE
+
+    def test_vazio_deriva_de_services_path(self, session: SessionState) -> None:
+        session.apim_path = "utils"
+        session.phase = Phase.ASK_INGRESS_HOST
+        step = sm.handle_ingress_host(session, "")
+        assert not step.error
+        assert session.ingress_host == "servicesutils"
+        assert session.phase == Phase.VALIDATE
+
+    def test_invalido_permanece(self, session: SessionState) -> None:
+        session.apim_path = "utils"
+        session.phase = Phase.ASK_INGRESS_HOST
+        step = sm.handle_ingress_host(session, "host.com.invalido")
+        assert step.error
+        assert step.next_phase == Phase.ASK_INGRESS_HOST
+        assert session.ingress_host is None

@@ -153,6 +153,9 @@ def prepare_dry_run(
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         dotnet_version=session.dotnet_version or DEFAULT_DOTNET_VERSION,
         dotnet_entrypoint=session.dotnet_entrypoint or "",
+        application_name=session.application_name or "",
+        apim_path=session.apim_path or "",
+        ingress_host=session.ingress_host or "",
         environments=settings.environments,
         pipeline_pass_language=settings.pipeline_pass_language,
         pipeline_template_path=_pipeline_template_path(settings, session.app_type, language),
@@ -161,6 +164,7 @@ def prepare_dry_run(
         acr_name=acr_name,
         devops_templates_repo_name=f"{devops_repo.project}/{devops_repo.repository}",
         devops_templates_tag=devops_repo.tag,
+        devops_templates_branch=settings.devops_templates_branch,
     )
 
 

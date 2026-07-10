@@ -49,6 +49,9 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "dotnet",  # responde a pergunta de linguagem (deteccao inconclusiva sem PAT)
             "",  # versao .NET: enter mantem o default 8.0.x
             "",  # entrypoint .NET: enter usa o default app_name.dll
+            "",  # applicationName: enter usa o nome do repo
+            "",  # pathApiManagementService: enter deriva do applicationName
+            "",  # host do ingress: enter deriva de services<path>
             "nao",
             "",
         ]
@@ -66,7 +69,8 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     assert "Vou criar os seguintes arquivos" in stdout
     assert "Dockerfile" in stdout
     assert "azure-pipelines.yaml" in stdout
-    assert "helm/manifests/Chart.yaml" in stdout
+    assert "helm/base/Chart.yaml" in stdout
+    assert "helm/base/charts/microservice-chart-0.4.4.tgz" in stdout
     assert "helm/environments/dev/values.yaml" in stdout
     assert "sessao cancelada" in stdout.lower()
 
@@ -91,6 +95,9 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
             "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
             "",  # versao .NET: default
             "",  # entrypoint .NET: default
+            "",  # applicationName: default
+            "",  # pathApiManagementService: default
+            "",  # host do ingress: default
             "nao",
             "",
         ]
@@ -124,6 +131,9 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "dotnet",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
             "",  # versao .NET: enter mantem o default
             "",  # entrypoint .NET: enter usa o default
+            "",  # applicationName: default
+            "",  # pathApiManagementService: default
+            "",  # host do ingress: default
             "nao",
             "",
         ]

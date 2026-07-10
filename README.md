@@ -19,7 +19,7 @@ linguagem) - sem dependencia de LLM. O codigo deterministico decide *como*
 gerar os artefatos via templates Jinja2. Util para CI/scripts.
 
 O agente clona o repositorio da aplicacao, escreve os arquivos (Dockerfile,
-azure-pipelines.yaml e o Helm em `helm/manifests` + `helm/environments`),
+azure-pipelines.yaml e o Helm em `helm/base` + `helm/environments`),
 faz commit/push em branch nova e abre um unico PR.
 
 ## Estrutura
