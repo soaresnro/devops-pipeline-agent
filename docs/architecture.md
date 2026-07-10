@@ -112,7 +112,7 @@ Exemplo: Maria quer pipeline para API `payments-api`.
 4. Pergunta namespace → `validate_namespace`
 5. Pergunta tipo → `validate_app_type`
 6. `propose_scaffold` → renderiza tudo, retorna lista de arquivos + colisoes
-7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml, helm/manifests/* e helm/environments/<env>/values.yaml no `payments-api`. Confirma?"
+7. **CONFIRM**: agente mostra resumo: "Vou criar Dockerfile, azure-pipelines.yaml, helm/base/* e helm/environments/<env>/values.yaml no `payments-api`. Confirma?"
 8. EXECUTE: clone shallow do repo da app → escreve arquivos → cria branch `scaffold/api-20260529-1430` → commit/push → abre PR no repo da app
 9. Cleanup tmpfs
 10. Agente entrega o link do PR no chat
@@ -138,42 +138,48 @@ templates/
 ### Pipeline YAML referencia template do DevOps por **tag**
 
 ```yaml
+# stack dotnet (espelha o template-aks.yml de epharma-api-utils)
 resources:
   repositories:
-    - repository: devops-templates
+    - repository: templates
       type: git
-      name: Platform/devops-templates
-      ref: refs/tags/v3   # versionado, nao branch!
+      name: epharmaDevOps/AzurePipelinesTemplates
+      ref: refs/heads/master   # stack dotnet referencia por BRANCH; _default usa refs/tags/<tag>
 
 extends:
-  template: pipelines/k8s-app.yaml@devops-templates   # caminho por stack (DEVOPS_TEMPLATE_<LANG>)
-  parameters:                                          # contrato por stack; ex. .NET:
-    applicationName: payments-api
-    namespace: payments-prod
+  template: pipelines/template-aks.yml@templates   # caminho por stack (DEVOPS_TEMPLATE_<LANG>)
+  parameters:                                        # contrato por stack; ex. .NET:
+    enableApim: true                                 # so api; substitui deployAKS/deployAppService
+    applicationName: api-utils                       # perguntado no fluxo (default = nome do repo)
+    namespace: corporativo
+    deploymentStrategy: rolling
+    pathApiManagementService: utils                  # perguntado (default = applicationName sem 'api-')
     ApplicationType: dotnet
     projectType: webapi
     dotNetVersion: 8.0.x
-    deployAppService: false
-    deployAKS: true
-    imageTag: $(Build.BuildId)
+    imageName: $(Build.Repository.Name)              # macro do repo (modelo do time)
+    imageTag: $(Build.SourceBranchName)-$(Build.BuildId)
 ```
 
-O Helm vive no **repositorio da propria aplicacao**: o chart vai para `helm/manifests/` e os overrides
+O Helm vive no **repositorio da propria aplicacao**: o chart vai para `helm/base/` e os overrides
 por ambiente para `helm/environments/<env>/values.yaml` (o template do time le os manifests do checkout
 self e faz `helm upgrade -f` por ambiente). Nao ha PR no repo do time de DevOps.
 
-**Modelo do time (AksHelmCharts):** api/web/worker geram uma chart FINA que depende de uma base chart
+**Modelo do time (AksHelmBaseCharts):** api/web/worker geram uma chart FINA que depende de uma base chart
 compartilhada (microservice-chart/worker-chart) — sem templates proprios; os values ficam aninhados sob
 a chave da base chart. cronjob mantem o chart self-contained. A tabela abaixo descreve as caracteristicas
 conceituais por tipo (hoje materializadas pela base chart).
 
-A chart fina **vendoriza a base chart descompactada**: alem de `Chart.yaml`/`values.yaml`, o agente emite
-`helm/manifests/charts/<base>/` com os arquivos puros da base chart (deployment/service/ingress/hpa/etc.),
-copiados verbatim do repo modelo e mantidos em `templates/helm/basechart/_vendor/<base>/`. O `helm`
-resolve a dependency declarada no `Chart.yaml` direto do diretorio `charts/<base>/`, sem `.tgz`,
-`Chart.lock`, `helm dependency build` ou acesso ao AksHelmBaseCharts no momento do deploy.
+A chart fina **vendoriza a base chart empacotada**: alem de `Chart.yaml`/`values.yaml`, o agente emite
+`helm/base/charts/<base>-<versao>.tgz` (binario) + `helm/base/Chart.lock` — par consistente, saidas reais
+de `helm dependency build`, mantidas em `templates/helm/basechart/_vendor/<base>-<versao>.tgz`/`.lock`. O
+`Chart.yaml` declara a dependency com `repository: file://.../AksHelmBaseCharts/...` (metadado); o `helm`
+renderiza pelo `.tgz` em `charts/`, sem precisar do AksHelmBaseCharts no momento do deploy (validado com
+`helm lint`/`helm template`). O override por ambiente (microservice) tem dois ingresses (primary/legacy) e
+`dev` fica vazio.
 
-**Decisao critica:** referencia por tag evita que mudanca no template quebre pipelines em producao sem aviso.
+**Decisao critica:** o stack `_default` referencia o template por tag (evita que mudanca no template quebre
+pipelines pinadas); o stack `dotnet` referencia por branch `master` para espelhar 1:1 o contrato real do time.
 
 ### Variacoes API/Worker/Web
 
@@ -224,7 +230,7 @@ resolve a dependency declarada no `Chart.yaml` direto do diretorio `charts/<base
 | Namespace nao reservado (`kube-*`, `default`, `istio-*`) | recusa |
 | `app_type` ∈ {api, worker, web} | recusa |
 | Colisao `Dockerfile`/`azure-pipelines.yaml` no app | mostra diff, 3 opcoes |
-| Colisao `helm/manifests/` ou `helm/environments/` no app | mesma coisa |
+| Colisao `helm/base/` ou `helm/environments/` no app | mesma coisa |
 | Templates DevOps acessiveis na tag esperada | health check unhealthy |
 
 ---
@@ -319,7 +325,7 @@ A serem fechados conforme o desenvolvimento avanca:
 
 ## 13. Estado atual da implementacao
 
-POC completa em [`src/devops_agent/`](../src/devops_agent/). **235 testes passando**.
+POC completa em [`src/devops_agent/`](../src/devops_agent/). **247 testes passando**.
 A camada de LLM foi removida: o agente roda 100% deterministico.
 
 **Modulos prontos:**

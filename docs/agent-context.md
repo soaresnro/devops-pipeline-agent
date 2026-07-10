@@ -27,7 +27,25 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-06-10)
+## Estado do projeto (atualizado em 2026-07-10)
+
+**Alinhamento 1:1 ao repo modelo `epharma-api-utils` (2026-07-10).** Os artefatos gerados passaram
+a espelhar exatamente o repo real do time (`epharma-api-utils`, branch `configuracao/aks`). Mudancas:
+(1) **Helm** em `helm/base/` (era `helm/manifests/`), com a base chart VENDORIZADA EMPACOTADA
+(`helm/base/charts/<base>-<versao>.tgz` + `helm/base/Chart.lock`; reverte o formato descompactado do
+PR #24) e dependency no Chart.yaml com `repository: file://.../AksHelmBaseCharts/...`. O `.tgz` volta a
+ser binario (`ScaffoldedFile.binary_b64` + `write_bytes` no git_ops), recuperado do historico git
+(commit pai de `d0d8a5d`). Validado com `helm lint`/`helm template` reais. (2) **Pipeline dotnet**
+espelha o `template-aks.yml`: `enableApim: true` (so api; substitui deployAKS/deployAppService),
+`imageName: $(Build.Repository.Name)` (macro; reverte o lowercase do PR #22), e `resources.templates`
+com `ref: refs/heads/{DEVOPS_TEMPLATES_BRANCH}` (branch `master`, novo setting). (3) **Skeleton de
+environments** (microservice) com DOIS ingresses (primary `private-nginx` + legacy `private-legacy-nginx`,
+hosts/secrets derivados por ambiente na convencao epharma) e `dev` VAZIO. (4) **Fluxo** ganhou 3
+perguntas para dotnet api: `applicationName` (ASK_APPLICATION_NAME), `pathApiManagementService`
+(ASK_APIM_PATH) e host base do ingress (ASK_INGRESS_HOST), todas com defaults derivados; web pergunta
+so o host; worker/cronjob pulam APIM/ingress. (5) **Dockerfile dotnet** ganhou `icu-libs` +
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false`. **247 testes** verdes, `mypy --strict` limpo. Setting novo:
+`DEVOPS_TEMPLATES_BRANCH` (default `master`); recomenda-se `DEVOPS_TEMPLATE_DOTNET=pipelines/template-aks.yml`.
 
 **Helm no repo da propria aplicacao (2026-06-10).** O agente passou a gerar TUDO no repositorio
 da propria app, com um unico clone e um unico PR: Dockerfile, azure-pipelines.yaml, chart em
@@ -116,7 +134,7 @@ PAT com escopo **Code (Read & Write)**.
 
 1. `devops-agent scaffold` faz as perguntas, mostra o resumo e pergunta `confirma?`.
    Responder `nao` = dry-run seguro (nada e escrito). `sim` = abre UM PR no repo da
-   app (Dockerfile + azure-pipelines.yaml + helm/manifests + helm/environments).
+   app (Dockerfile + azure-pipelines.yaml + helm/base + helm/environments).
 2. Para a pipeline **compilar/rodar**, o template referenciado precisa existir no
    repo `devops-templates` **na tag** `DEVOPS_TEMPLATES_TAG` (referencia por tag,
    nunca branch). O caminho e escolhido pela linguagem via `DEVOPS_TEMPLATE_<LINGUAGEM>`

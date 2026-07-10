@@ -12,13 +12,14 @@ trigger:
       - hotfix/*
       - feature/*
 
-# Os manifests do Helm vivem neste proprio repositorio (helm/manifests +
+# Os manifests do Helm vivem neste proprio repositorio (helm/base +
 # helm/environments); a pipeline os le do checkout self, sem resource dedicado.
 resources:
   repositories:
     - repository: templates
       type: git
       name: {{ devops_templates_repo_name }}
+      ref: refs/heads/{{ devops_templates_branch }}
 
 pool:
   name: agt_pool_linux_vmss
@@ -40,29 +41,23 @@ variables:
 extends:
   template: {{ pipeline_template_path }}@templates
   parameters:
-    # Plataformas alvo
-    deployAppService: false
-    deployAKS: true
+    # Habilitar integracao com o APIM (apenas api)
+    enableApim: {{ 'true' if app_type == 'api' else 'false' }}
 
     # Defina valores da aplicacao
-    applicationName: '{{ app_name }}'
+    applicationName: '{{ application_name }}'
     namespace: '{{ namespace }}'
 
     # Estrategia de deploy
     deploymentStrategy: 'rolling'
+
+    pathApiManagementService: '{{ apim_path }}'
 
     # Tipo e stack
     ApplicationType: 'dotnet'
     projectType: 'webapi'
     dotNetVersion: '{{ dotnet_version }}'
 
-    # Configuracoes complementares
-    pathApiManagementService: '{{ app_path }}'
-    pathAutomation: '{{ app_path }}'
-
     # Variaveis para Docker
-    # app_name (nome do repo em lowercase): nomes de repositorio Docker DEVEM ser
-    # lowercase, senao a promocao entre ACRs falha ("repository name must be lowercase").
-    # Tambem mantem o nome da imagem igual ao image.repository do Helm (acraks<env>eastus/<app_name>).
-    imageName: '{{ app_name }}'
+    imageName: '$(Build.Repository.Name)'
     imageTag: '$(Build.SourceBranchName)-$(Build.BuildId)'

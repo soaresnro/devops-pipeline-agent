@@ -189,13 +189,21 @@ def list_existing_paths(repo_path: Path) -> set[str]:
 
 
 def write_files(repo_path: Path, files: list[ScaffoldedFile]) -> ToolResult[int]:
-    """Escreve uma lista de ScaffoldedFile no repo (criando diretorios)."""
+    """Escreve uma lista de ScaffoldedFile no repo (criando diretorios).
+
+    Arquivos binarios (`is_binary`, ex.: o `.tgz` da base chart) vao por `write_bytes`
+    decodificando `binary_b64`; os de texto por `write_text` (utf-8).
+    """
     count = 0
     try:
         for f in files:
             full = repo_path / Path(f.path)
             full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(f.content, encoding="utf-8")
+            if f.is_binary:
+                assert f.binary_b64 is not None
+                full.write_bytes(base64.b64decode(f.binary_b64))
+            else:
+                full.write_text(f.content, encoding="utf-8")
             count += 1
     except OSError as exc:
         return ToolResult.failure(

@@ -87,6 +87,11 @@ _DEFAULT_DOTNET_VERSION = "8.0.x"
 # Assembly de entrada .NET (ex.: ePharma.Authentication.Services[.dll]).
 _DOTNET_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# Label DNS-1123 (applicationName, path de APIM, host base do ingress): minusculas,
+# digitos e hifen; nao comeca/termina com hifen. Reaproveita a regra do namespace.
+_DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+_DNS_LABEL_MAX_LEN = 63
+
 
 def validate_repo_url(
     url: str,
@@ -256,6 +261,52 @@ def validate_dotnet_entrypoint(value: str) -> ToolResult[str]:
     if not name.lower().endswith(".dll"):
         name += ".dll"
     return ToolResult.success(name)
+
+
+def validate_application_name(value: str) -> ToolResult[str]:
+    """Valida o applicationName da pipeline/Helm (label DNS-1123, ex.: api-utils)."""
+    if not value or not value.strip():
+        return ToolResult.failure("applicationName nao informado.", code="application_name.empty")
+    name = value.strip().lower()
+    if len(name) > _DNS_LABEL_MAX_LEN or not _DNS_LABEL_RE.match(name):
+        return ToolResult.failure(
+            "applicationName invalido. Use minusculas, digitos e hifen; "
+            "comece e termine com letra ou digito (ex.: api-utils).",
+            code="application_name.invalid",
+        )
+    return ToolResult.success(name)
+
+
+def validate_apim_path(value: str) -> ToolResult[str]:
+    """Valida o pathApiManagementService (label DNS-1123, ex.: utils)."""
+    if not value or not value.strip():
+        return ToolResult.failure(
+            "pathApiManagementService nao informado.", code="apim_path.empty"
+        )
+    path = value.strip().lower()
+    if len(path) > _DNS_LABEL_MAX_LEN or not _DNS_LABEL_RE.match(path):
+        return ToolResult.failure(
+            "pathApiManagementService invalido. Use minusculas, digitos e hifen (ex.: utils).",
+            code="apim_path.invalid",
+        )
+    return ToolResult.success(path)
+
+
+def validate_ingress_host(value: str) -> ToolResult[str]:
+    """Valida o host base do ingress (label DNS-1123 sem pontos, ex.: servicesutils).
+
+    O dominio completo (.k8s.<env>.epharma.com.br e o legado) e derivado por ambiente.
+    """
+    if not value or not value.strip():
+        return ToolResult.failure("Host do ingress nao informado.", code="ingress_host.empty")
+    host = value.strip().lower()
+    if len(host) > _DNS_LABEL_MAX_LEN or not _DNS_LABEL_RE.match(host):
+        return ToolResult.failure(
+            "Host base invalido. Use minusculas, digitos e hifen, sem pontos "
+            "(o dominio e adicionado automaticamente por ambiente; ex.: servicesutils).",
+            code="ingress_host.invalid",
+        )
+    return ToolResult.success(host)
 
 
 def validate_branch_name(branch: str) -> ToolResult[str]:

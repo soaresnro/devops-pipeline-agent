@@ -166,6 +166,36 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_APPLICATION_NAME:
+        _print_agent(sm.question_for(Phase.ASK_APPLICATION_NAME))
+        raw = _ask(f"(enter para {session.app_name}) >")
+        step = sm.handle_application_name(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.ASK_APIM_PATH:
+        _print_agent(sm.question_for(Phase.ASK_APIM_PATH))
+        raw = _ask("(enter para derivar do applicationName) >")
+        step = sm.handle_apim_path(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.ASK_INGRESS_HOST:
+        _print_agent(sm.question_for(Phase.ASK_INGRESS_HOST))
+        raw = _ask("(enter para derivar de 'services<path>') >")
+        step = sm.handle_ingress_host(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.VALIDATE:
         result = exec_mod.prepare_dry_run(session, settings)  # type: ignore[arg-type]
         if not result.ok or result.data is None:
