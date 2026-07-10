@@ -40,7 +40,9 @@ espelha o `template-aks.yml`: `enableApim: true` (so api; substitui deployAKS/de
 `imageName: $(Build.Repository.Name)` (macro; reverte o lowercase do PR #22), e `resources.templates`
 com `ref: refs/heads/{DEVOPS_TEMPLATES_BRANCH}` (branch `master`, novo setting). (3) **Skeleton de
 environments** (microservice) com DOIS ingresses (primary `private-nginx` + legacy `private-legacy-nginx`,
-hosts/secrets derivados por ambiente na convencao epharma) e `dev` VAZIO. (4) **Fluxo** ganhou 3
+hosts/secrets derivados por ambiente na convencao epharma); o skeleton e gerado para TODOS os
+ambientes, incluindo `dev` (a referencia deixa dev vazio, mas o agente gera o override — ajuste
+em fix/gerar-dev-values, 2026-07-10). (4) **Fluxo** ganhou 3
 perguntas para dotnet api: `applicationName` (ASK_APPLICATION_NAME), `pathApiManagementService`
 (ASK_APIM_PATH) e host base do ingress (ASK_INGRESS_HOST), todas com defaults derivados; web pergunta
 so o host; worker/cronjob pulam APIM/ingress. (5) **Dockerfile dotnet** ganhou `icu-libs` +

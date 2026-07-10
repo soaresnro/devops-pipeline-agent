@@ -160,13 +160,19 @@ class TestEnvironments:
         assert "helm/environments/prod/values.yaml" in paths
         assert "helm/environments/qa/values.yaml" not in paths
 
-    def test_dev_values_e_vazio(self, base_ctx: dict[str, object]) -> None:
-        # convencao da referencia: dev usa apenas os defaults da base chart -> arquivo vazio
-        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+    def test_dev_values_e_gerado_preenchido(self, base_ctx: dict[str, object]) -> None:
+        # a referencia deixa dev vazio, mas o agente gera o override completo tambem para dev
+        bundle = build_bundle(
+            app_type=AppType.API, ingress_host="servicesutils", **base_ctx  # type: ignore[arg-type]
+        )
         dev = next(
             f for f in bundle.files if f.path == "helm/environments/dev/values.yaml"
         )
-        assert dev.content == ""
+        assert dev.content != ""
+        mc = yaml.safe_load(dev.content)["microservice-chart"]
+        assert mc["environment"] == "dev"
+        assert mc["image"]["repository"] == "acraksdeveastus.azurecr.io/payments-api"
+        assert mc["ingresses"][0]["rules"][0]["host"] == "servicesutils.k8s.dev.epharma.com.br"
 
     def test_override_microservice_skeleton_dois_ingresses(
         self, base_ctx: dict[str, object]

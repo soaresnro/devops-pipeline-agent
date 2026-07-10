@@ -176,7 +176,8 @@ de `helm dependency build`, mantidas em `templates/helm/basechart/_vendor/<base>
 `Chart.yaml` declara a dependency com `repository: file://.../AksHelmBaseCharts/...` (metadado); o `helm`
 renderiza pelo `.tgz` em `charts/`, sem precisar do AksHelmBaseCharts no momento do deploy (validado com
 `helm lint`/`helm template`). O override por ambiente (microservice) tem dois ingresses (primary/legacy) e
-`dev` fica vazio.
+e gerado para todos os ambientes, incluindo `dev` (a referencia deixa dev vazio, mas o agente gera o
+override para o usuario ajustar).
 
 **Decisao critica:** o stack `_default` referencia o template por tag (evita que mudanca no template quebre
 pipelines pinadas); o stack `dotnet` referencia por branch `master` para espelhar 1:1 o contrato real do time.

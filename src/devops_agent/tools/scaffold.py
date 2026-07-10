@@ -347,12 +347,10 @@ def _render_basechart_chart(
 
     host_base = str(ctx["ingress_host"])
     for env in environments:
-        # Convencao da referencia: dev usa apenas os defaults da base chart -> arquivo vazio.
-        if env == "dev":
-            env_values = ""
-        else:
-            env_ctx = {**ctx, "env": env, **_ingress_hosts(host_base, env)}
-            env_values = _render_template(f"environments/{kind}/values.yaml.j2", env_ctx)
+        # Todos os ambientes (incl. dev) recebem o skeleton completo. A referencia deixa
+        # dev vazio, mas o agente gera o override para o usuario preencher/ajustar.
+        env_ctx = {**ctx, "env": env, **_ingress_hosts(host_base, env)}
+        env_values = _render_template(f"environments/{kind}/values.yaml.j2", env_ctx)
         files.append(
             ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
         )
