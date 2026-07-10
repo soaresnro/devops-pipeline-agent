@@ -203,6 +203,40 @@ class TestEnvironments:
         assert legacy["rules"][0]["host"] == "servicesutilsqa.epharma.com.br"
         # SA no formato sa-{namespace}-{applicationName}
         assert mc["serviceAccount"]["name"] == "sa-payments-prod-api-utils"
+        # env defaults: timezone (todos) + ASPNETCORE_ENVIRONMENT (por ambiente) + Swagger (api)
+        assert mc["env"]["WEBSITE_TIME_ZONE"] == "America/Sao_Paulo"
+        assert mc["env"]["ASPNETCORE_ENVIRONMENT"] == "Development"  # qa -> Development
+        assert mc["env"]["SwaggerEnabled"] == "true"
+
+    def test_env_aspnetcore_environment_por_ambiente(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        esperado = {
+            "dev": "Development",
+            "qa": "Development",
+            "uat": "Staging",
+            "prod": "Production",
+        }
+        for env, aspnet in esperado.items():
+            ev = next(
+                f for f in bundle.files if f.path == f"helm/environments/{env}/values.yaml"
+            )
+            mc = yaml.safe_load(ev.content)["microservice-chart"]
+            assert mc["env"]["ASPNETCORE_ENVIRONMENT"] == aspnet
+            assert mc["env"]["WEBSITE_TIME_ZONE"] == "America/Sao_Paulo"
+
+    def test_env_swagger_so_api(self, base_ctx: dict[str, object]) -> None:
+        # SwaggerEnabled so em api; web (mesmo microservice-chart) nao recebe
+        api = build_bundle(app_type=AppType.API, **base_ctx)  # type: ignore[arg-type]
+        web = build_bundle(app_type=AppType.WEB, **base_ctx)  # type: ignore[arg-type]
+        api_env = yaml.safe_load(
+            next(f for f in api.files if f.path == "helm/environments/prod/values.yaml").content
+        )["microservice-chart"]["env"]
+        web_env = yaml.safe_load(
+            next(f for f in web.files if f.path == "helm/environments/prod/values.yaml").content
+        )["microservice-chart"]["env"]
+        assert api_env["SwaggerEnabled"] == "true"
+        assert "SwaggerEnabled" not in web_env
+        assert web_env["ASPNETCORE_ENVIRONMENT"] == "Production"
 
     def test_prod_omite_segmento_de_ambiente_no_host(
         self, base_ctx: dict[str, object]

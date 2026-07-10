@@ -29,6 +29,12 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-10)
 
+**Env defaults por ambiente no override microservice (2026-07-10).** O bloco `env` dos
+`helm/environments/<env>/values.yaml` (api/web) passa a vir com defaults: `ASPNETCORE_ENVIRONMENT`
+por ambiente (dev/qa=Development, uat=Staging, prod=Production; helper `scaffold.aspnetcore_environment`,
+fallback Development para ambientes fora do conjunto), `WEBSITE_TIME_ZONE=America/Sao_Paulo` (todos) e
+`SwaggerEnabled=true` so para api. 252 testes verdes, `mypy --strict` limpo.
+
 **Pipeline template-aks + apiId + SA por namespace (2026-07-10).** Ajustes pos-teste: (1) o stack
 dotnet passa a apontar para `pipelines/template-aks.yml` (via `DEVOPS_TEMPLATE_DOTNET`; era
 `hybrid-template.yml`); (2) esse template exige o param **`apiId`**, agora emitido no `extends.parameters`
