@@ -51,7 +51,13 @@ microservice-chart:
 
   environment: {{ env }}
 
-  env: {}  # ATUALIZE com as variaveis da aplicacao
+  env:
+    # Defaults por ambiente; adicione outras variaveis da aplicacao conforme necessario.
+    ASPNETCORE_ENVIRONMENT: "{{ aspnetcore_environment }}"
+    WEBSITE_TIME_ZONE: "America/Sao_Paulo"
+{%- if app_type == 'api' %}
+    SwaggerEnabled: "true"
+{%- endif %}
 
   autoscaling:
     enabled: false

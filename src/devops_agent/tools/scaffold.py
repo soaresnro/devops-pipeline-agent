@@ -183,6 +183,20 @@ def default_ingress_host(apim_path: str) -> str:
     return f"services{apim_path}"
 
 
+# ASPNETCORE_ENVIRONMENT por ambiente (convencao do time). Fallback "Development" para
+# ambientes fora do conjunto conhecido (DEVOPS_ENVIRONMENTS pode ter nomes custom).
+_ASPNETCORE_ENVIRONMENT: dict[str, str] = {
+    "dev": "Development",
+    "qa": "Development",
+    "uat": "Staging",
+    "prod": "Production",
+}
+
+
+def aspnetcore_environment(env: str) -> str:
+    return _ASPNETCORE_ENVIRONMENT.get(env, "Development")
+
+
 def _ingress_hosts(host_base: str, env: str) -> dict[str, object]:
     """Deriva os hosts/secrets dos dois ingresses (primary + legacy) por ambiente.
 
@@ -352,7 +366,12 @@ def _render_basechart_chart(
     for env in environments:
         # Todos os ambientes (incl. dev) recebem o skeleton completo. A referencia deixa
         # dev vazio, mas o agente gera o override para o usuario preencher/ajustar.
-        env_ctx = {**ctx, "env": env, **_ingress_hosts(host_base, env)}
+        env_ctx = {
+            **ctx,
+            "env": env,
+            "aspnetcore_environment": aspnetcore_environment(env),
+            **_ingress_hosts(host_base, env),
+        }
         env_values = _render_template(f"environments/{kind}/values.yaml.j2", env_ctx)
         files.append(
             ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
