@@ -29,6 +29,12 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-10)
 
+**applicationName remove prefixo igual ao namespace (2026-07-10).** Se o applicationName comecar
+com `{namespace}-`, o prefixo e removido (`scaffold.strip_namespace_prefix`, aplicado no
+`handle_application_name` antes das derivacoes e tambem no `build_bundle`). Ex.: ns=autorizador +
+nome=autorizador-api-teste -> api-teste, evitando o SA duplicado `sa-autorizador-autorizador-api-teste`
+(agora `sa-autorizador-api-teste`). 255 testes verdes, `mypy --strict` limpo.
+
 **Env defaults por ambiente no override microservice (2026-07-10).** O bloco `env` dos
 `helm/environments/<env>/values.yaml` (api/web) passa a vir com defaults: `ASPNETCORE_ENVIRONMENT`
 por ambiente (dev/qa=Development, uat=Staging, prod=Production; helper `scaffold.aspnetcore_environment`,

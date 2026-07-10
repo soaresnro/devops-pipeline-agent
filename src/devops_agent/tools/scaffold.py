@@ -173,6 +173,19 @@ def _walk_static_helm_files(base_relpath: str) -> list[tuple[str, str]]:
     return out
 
 
+def strip_namespace_prefix(application_name: str, namespace: str) -> str:
+    """Remove o prefixo '<namespace>-' do applicationName, se presente.
+
+    Evita duplicar o namespace no serviceAccount (sa-<ns>-<applicationName>) e afins.
+    Ex.: namespace='autorizador', application_name='autorizador-api-teste' -> 'api-teste'.
+    Nao remove quando o nome e exatamente igual ao namespace (nao ha sufixo apos o hifen).
+    """
+    prefix = f"{namespace}-"
+    if namespace and application_name.startswith(prefix) and len(application_name) > len(prefix):
+        return application_name[len(prefix) :]
+    return application_name
+
+
 def default_apim_path(application_name: str) -> str:
     """pathApiManagementService: convencao do time (applicationName sem o prefixo 'api-')."""
     return application_name.removeprefix("api-")
@@ -440,7 +453,8 @@ def build_bundle(
     """Renderiza todos os artefatos em memoria."""
     envs = environments if environments is not None else list(DEFAULT_ENVIRONMENTS)
     # Defaults derivados quando o usuario nao informa (mesma convencao do state_machine).
-    resolved_app = application_name or app_name
+    # Remove o prefixo do namespace do applicationName (idempotente com o state_machine).
+    resolved_app = strip_namespace_prefix(application_name or app_name, namespace)
     resolved_path = apim_path or default_apim_path(resolved_app)
     resolved_host = ingress_host or default_ingress_host(resolved_path)
     ctx = _build_template_context(

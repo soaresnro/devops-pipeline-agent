@@ -176,6 +176,25 @@ class TestHandleApplicationName:
         assert step.next_phase == Phase.ASK_APPLICATION_NAME
         assert session.application_name is None
 
+    def test_remove_prefixo_igual_ao_namespace(self, session: SessionState) -> None:
+        # ns=autorizador + nome=autorizador-api-teste -> api-teste (evita sa-<ns>-<ns>-...)
+        session.app_type = AppType.API
+        session.namespace = "autorizador"
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "autorizador-api-teste")
+        assert not step.error
+        assert session.application_name == "api-teste"
+
+    def test_vazio_com_repo_prefixado_pelo_namespace(self, session: SessionState) -> None:
+        # default (app_name) tambem tem o prefixo do namespace removido
+        session.app_type = AppType.API
+        session.namespace = "autorizador"
+        session.app_name = "autorizador-api-teste"
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "")
+        assert not step.error
+        assert session.application_name == "api-teste"
+
 
 class TestHandleApimPath:
     def test_valido_vai_para_api_id(self, session: SessionState) -> None:

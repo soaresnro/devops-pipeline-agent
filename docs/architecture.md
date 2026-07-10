@@ -327,7 +327,7 @@ A serem fechados conforme o desenvolvimento avanca:
 
 ## 13. Estado atual da implementacao
 
-POC completa em [`src/devops_agent/`](../src/devops_agent/). **252 testes passando**.
+POC completa em [`src/devops_agent/`](../src/devops_agent/). **255 testes passando**.
 A camada de LLM foi removida: o agente roda 100% deterministico.
 
 **Modulos prontos:**

@@ -11,7 +11,11 @@ from dataclasses import dataclass
 
 from devops_agent.config import Settings
 from devops_agent.models import AppType, Language, Phase, SessionState
-from devops_agent.tools.scaffold import default_apim_path, default_ingress_host
+from devops_agent.tools.scaffold import (
+    default_apim_path,
+    default_ingress_host,
+    strip_namespace_prefix,
+)
 from devops_agent.tools.validation import (
     validate_api_id,
     validate_apim_path,
@@ -294,9 +298,10 @@ def _after_application_name(session: SessionState) -> StepResult:
 
 
 def handle_application_name(session: SessionState, user_input: str) -> StepResult:
+    namespace = session.namespace or ""
     # Entrada vazia usa o nome do repositorio (app_name).
     if not user_input.strip():
-        session.application_name = session.app_name
+        session.application_name = strip_namespace_prefix(session.app_name or "", namespace)
         return _after_application_name(session)
 
     result = validate_application_name(user_input)
@@ -307,7 +312,9 @@ def handle_application_name(session: SessionState, user_input: str) -> StepResul
             error=result.error,
         )
 
-    session.application_name = result.data
+    # Remove o prefixo do namespace (ex.: ns=autorizador, nome=autorizador-api-teste -> api-teste),
+    # para nao duplicar o namespace no serviceAccount (sa-<ns>-<applicationName>).
+    session.application_name = strip_namespace_prefix(result.data, namespace)
     return _after_application_name(session)
 
 
