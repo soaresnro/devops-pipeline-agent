@@ -251,6 +251,31 @@ class TestEnvironments:
         assert mc["ingresses"][0]["rules"][0]["host"] == "servicesutils.k8s.epharma.com.br"
         assert mc["ingresses"][1]["rules"][0]["host"] == "servicesutils.epharma.com.br"
 
+    def test_application_name_remove_prefixo_do_namespace(self) -> None:
+        # ns=autorizador + applicationName=autorizador-api-teste: o prefixo do namespace
+        # e removido, entao o SA nao duplica o namespace (sa-autorizador-api-teste).
+        bundle = build_bundle(
+            app_name="autorizador-api-teste",
+            app_type=AppType.API,
+            namespace="autorizador",
+            branch="main",
+            acr_name="contosoacr",
+            devops_templates_repo_name="Platform/devops-templates",
+            devops_templates_tag="v3",
+            application_name="autorizador-api-teste",
+            api_id="api-teste",
+        )
+        ev = next(
+            f for f in bundle.files if f.path == "helm/environments/qa/values.yaml"
+        )
+        mc = yaml.safe_load(ev.content)["microservice-chart"]
+        assert mc["serviceAccount"]["name"] == "sa-autorizador-api-teste"
+        assert mc["ingresses"][0]["name"] == "api-teste"
+        params = yaml.safe_load(
+            next(f for f in bundle.files if f.path == "azure-pipelines.yaml").content
+        )["extends"]["parameters"]
+        assert params["applicationName"] == "api-teste"
+
     def test_override_worker_sem_ingresses(self, base_ctx: dict[str, object]) -> None:
         # worker usa o worker-chart e um env nao-dev (dev e vazio para todos os tipos)
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
