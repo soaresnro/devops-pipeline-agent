@@ -8,6 +8,9 @@ POC em construcao. Veja `docs/architecture.md` (em breve) para a arquitetura com
 
 ## Como usar
 
+> **Novo no time?** O passo a passo completo de setup do ambiente local (Python, venv,
+> PAT, `.env`) esta em [`docs/GUIA-DE-USO.md`](docs/GUIA-DE-USO.md).
+
 ```bash
 pip install -e ".[dev]"
 copy .env.example .env  # configure AZDO_*
