@@ -287,6 +287,83 @@ class TestEnvironments:
         assert "ingresses" not in wc
 
 
+class TestEnvDoDockerfileNoValues:
+    """A unica ENV do Dockerfile e DOTNET_RUNNING_IN_CONTAINER (descreve a imagem); as
+    demais variaveis de runtime vivem no values de cada ambiente, ajustaveis sem rebuild."""
+
+    _MOVIDAS = (
+        "TZ",
+        "ASPNETCORE_URLS",
+        "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT",
+        "Logging__LogLevel__Default",
+        "Logging__LogLevel__Microsoft",
+        "Logging__LogLevel__Microsoft.Hosting.Lifetime",
+    )
+
+    @pytest.mark.parametrize("app_type", [AppType.API, AppType.WORKER, AppType.CRONJOB])
+    def test_dockerfile_dotnet_tem_uma_unica_env(
+        self, app_type: AppType, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        envs = [ln.strip() for ln in df.splitlines() if ln.startswith("ENV ")]
+        assert envs == ["ENV DOTNET_RUNNING_IN_CONTAINER=true"]
+
+    def test_values_api_recebem_as_envs_movidas(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(app_type=AppType.API, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        for env in ("dev", "prod"):
+            ev = next(f for f in bundle.files if f.path == f"helm/environments/{env}/values.yaml")
+            app_env = yaml.safe_load(ev.content)["microservice-chart"]["env"]
+            for key in self._MOVIDAS:
+                assert key in app_env, f"{key} ausente em {env}"
+            assert app_env["TZ"] == "America/Sao_Paulo"
+            assert app_env["ASPNETCORE_URLS"] == "http://+:8080"
+            assert app_env["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] == "false"
+            assert app_env["Logging__LogLevel__Microsoft.Hosting.Lifetime"] == "Information"
+            # as ENVs movidas convivem com os defaults por ambiente que ja existiam
+            assert app_env["ASPNETCORE_ENVIRONMENT"]
+
+    def test_values_worker_recebem_as_envs_movidas_sem_aspnetcore_urls(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        # worker roda em dotnet/runtime (nao aspnet): nao escuta HTTP, entao sem ASPNETCORE_URLS
+        bundle = build_bundle(app_type=AppType.WORKER, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == "helm/environments/qa/values.yaml")
+        app_env = yaml.safe_load(ev.content)["worker-chart"]["env"]
+        assert app_env["TZ"] == "America/Sao_Paulo"
+        assert app_env["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] == "false"
+        assert "ASPNETCORE_URLS" not in app_env
+
+    def test_values_cronjob_recebem_as_envs_movidas_como_lista(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        # o chart self-contained do cronjob usa env como lista de {name, value}
+        bundle = build_bundle(app_type=AppType.CRONJOB, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == "helm/environments/qa/values.yaml")
+        app_env = {item["name"]: item["value"] for item in yaml.safe_load(ev.content)["env"]}
+        assert app_env["TZ"] == "America/Sao_Paulo"
+        assert app_env["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] == "false"
+        assert "ASPNETCORE_URLS" not in app_env
+
+    def test_web_nao_recebe_envs_dotnet(self, base_ctx: dict[str, object]) -> None:
+        # web e SPA estatica servida por nginx, independente da linguagem detectada
+        bundle = build_bundle(app_type=AppType.WEB, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == "helm/environments/prod/values.yaml")
+        app_env = yaml.safe_load(ev.content)["microservice-chart"]["env"]
+        for key in self._MOVIDAS:
+            assert key not in app_env
+
+    @pytest.mark.parametrize("language", [Language.NODE, Language.PYTHON, Language.GO])
+    def test_outras_linguagens_nao_recebem_envs_dotnet(
+        self, language: Language, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=AppType.API, language=language, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == "helm/environments/prod/values.yaml")
+        app_env = yaml.safe_load(ev.content)["microservice-chart"]["env"]
+        for key in self._MOVIDAS:
+            assert key not in app_env
+
+
 class TestRenderedContent:
     def test_pipeline_dotnet_estrutura_do_modelo_do_time(
         self,
@@ -543,12 +620,12 @@ class TestRenderedContent:
         df = next(f for f in bundle.files if f.path == "Dockerfile")
         assert "EXPOSE 8080" in df.content
 
-    def test_dockerfile_dotnet_globalizacao_e_icu(self, base_ctx: dict[str, object]) -> None:
-        # modelo do time: icu-libs + globalization nao-invariante para culturas/ICU
+    def test_dockerfile_dotnet_instala_icu(self, base_ctx: dict[str, object]) -> None:
+        # modelo do time: icu-libs no runtime para culturas/ICU (a variavel de
+        # globalizacao vive no values de cada ambiente, nao no Dockerfile)
         bundle = build_bundle(app_type=AppType.API, language=Language.DOTNET, **base_ctx)  # type: ignore[arg-type]
         df = next(f for f in bundle.files if f.path == "Dockerfile").content
         assert "icu-libs" in df
-        assert "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false" in df
 
     def test_dockerfile_worker_sem_expose(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
