@@ -154,7 +154,10 @@ extends:
     namespace: corporativo
     deploymentStrategy: rolling
     pathApiManagementService: utils                  # perguntado (default = applicationName sem 'api-')
-    apiId: api-utils                                 # perguntado (OBRIGATORIO, sem default; so api)
+    apiIdDev: api-utils-dev                          # perguntados (OBRIGATORIO, sem default; so api)
+    apiIdQa: api-utils-qa                            # um valor unico no fluxo replica nos quatro;
+    apiIdUat: api-utils-uat                          # ou os quatro por virgula na ordem
+    apiIdProd: api-utils                             # dev,qa,uat,prod
     ApplicationType: dotnet
     projectType: webapi
     dotNetVersion: 8.0.x

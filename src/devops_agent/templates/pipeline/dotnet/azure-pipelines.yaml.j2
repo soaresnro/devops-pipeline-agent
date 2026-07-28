@@ -53,7 +53,12 @@ extends:
 
     pathApiManagementService: '{{ apim_path }}'
 {%- if app_type == 'api' %}
-    apiId: '{{ api_id }}'
+
+    # apiId do APIM por ambiente
+    apiIdDev: '{{ api_ids['dev'] }}'
+    apiIdQa: '{{ api_ids['qa'] }}'
+    apiIdUat: '{{ api_ids['uat'] }}'
+    apiIdProd: '{{ api_ids['prod'] }}'
 {%- endif %}
 
     # Tipo e stack

@@ -14,6 +14,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 from pydantic import BaseModel
 
 from devops_agent.models import AppType, Language, ToolResult
+from devops_agent.tools.validation import APIM_ENVIRONMENTS
 
 
 class ScaffoldedFile(BaseModel):
@@ -318,18 +319,19 @@ def _build_template_context(
     dotnet_entrypoint: str,
     application_name: str,
     apim_path: str,
-    api_id: str,
+    api_ids: dict[str, str],
     ingress_host: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     return {
         "app_name": app_name,
-        # applicationName/pathApiManagementService/apiId/host do ingress: perguntados no fluxo,
-        # com defaults derivados quando aplicavel (ver executor/state_machine). apiId (template-aks)
-        # e obrigatorio para api, sem default.
+        # applicationName/pathApiManagementService/apiIds/host do ingress: perguntados no
+        # fluxo, com defaults derivados quando aplicavel (ver executor/state_machine).
+        # Os apiIds (template-aks) sao obrigatorios para api, sem default.
         "application_name": application_name,
         "apim_path": apim_path,
-        "api_id": api_id,
+        # Normalizado com as quatro chaves para o template nao depender de `default`.
+        "api_ids": {env: api_ids.get(env, "") for env in APIM_ENVIRONMENTS},
         "ingress_host": ingress_host,
         "app_type": app_type.value,
         "language": language.value,
@@ -534,7 +536,7 @@ def build_bundle(
     dotnet_entrypoint: str = "",
     application_name: str = "",
     apim_path: str = "",
-    api_id: str = "",
+    api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
     environments: list[str] | None = None,
 ) -> ScaffoldBundle:
@@ -562,7 +564,7 @@ def build_bundle(
         dotnet_entrypoint=dotnet_entrypoint,
         application_name=resolved_app,
         apim_path=resolved_path,
-        api_id=api_id,
+        api_ids=api_ids or {},
         ingress_host=resolved_host,
     )
 
@@ -596,7 +598,7 @@ def dry_run(
     dotnet_entrypoint: str = "",
     application_name: str = "",
     apim_path: str = "",
-    api_id: str = "",
+    api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
     environments: list[str] | None = None,
     existing_repo_paths: set[str] | None = None,
@@ -620,7 +622,7 @@ def dry_run(
             dotnet_entrypoint=dotnet_entrypoint,
             application_name=application_name,
             apim_path=apim_path,
-            api_id=api_id,
+            api_ids=api_ids or {},
             ingress_host=ingress_host,
             environments=environments,
         )

@@ -6,6 +6,8 @@ import pytest
 
 from devops_agent.models import AppType, Language
 from devops_agent.tools.validation import (
+    APIM_ENVIRONMENTS,
+    validate_api_ids,
     validate_app_type,
     validate_branch_name,
     validate_cron_schedule,
@@ -273,3 +275,67 @@ class TestValidateBranchName:
     def test_rejeita_branches_invalidas(self, branch: str) -> None:
         r = validate_branch_name(branch)
         assert not r.ok
+
+
+class TestValidateApiIds:
+    """Aceita duas formas: um valor unico (vale para os quatro ambientes) ou os quatro
+    separados por virgula na ordem dev,qa,uat,prod."""
+
+    def test_ordem_das_chaves_e_o_contrato_da_pipeline(self) -> None:
+        assert APIM_ENVIRONMENTS == ("dev", "qa", "uat", "prod")
+
+    def test_quatro_valores_mapeiam_na_ordem(self) -> None:
+        r = validate_api_ids("a-dev,a-qa,a-uat,a-prod")
+        assert r.ok, r.error
+        assert r.data == {"dev": "a-dev", "qa": "a-qa", "uat": "a-uat", "prod": "a-prod"}
+
+    def test_valor_unico_se_replica_nos_quatro(self) -> None:
+        r = validate_api_ids("api-utils")
+        assert r.ok, r.error
+        assert r.data == dict.fromkeys(APIM_ENVIRONMENTS, "api-utils")
+
+    def test_ignora_espacos_em_volta_das_virgulas(self) -> None:
+        r = validate_api_ids("  a-dev , a-qa ,a-uat,  a-prod  ")
+        assert r.ok, r.error
+        assert r.data is not None
+        assert r.data["qa"] == "a-qa"
+
+    @pytest.mark.parametrize("valor", ["", "   ", "\n"])
+    def test_rejeita_vazio(self, valor: str) -> None:
+        r = validate_api_ids(valor)
+        assert not r.ok
+        assert r.error_code == "api_ids.empty"
+
+    @pytest.mark.parametrize("valor", ["a,b", "a,b,c", "a,b,c,d,e"])
+    def test_rejeita_quantidade_diferente_de_1_ou_4(self, valor: str) -> None:
+        r = validate_api_ids(valor)
+        assert not r.ok
+        assert r.error_code == "api_ids.count"
+
+    def test_rejeita_posicao_vazia_e_aponta_o_ambiente(self) -> None:
+        r = validate_api_ids("a-dev,,a-uat,a-prod")
+        assert not r.ok
+        assert r.error_code == "api_ids.empty_item"
+        assert "qa" in (r.error or "")
+
+    @pytest.mark.parametrize(
+        ("valor", "ambiente"),
+        [
+            ("-abre-com-hifen,a,b,c", "dev"),
+            ("a,com espaco,b,c", "qa"),
+            ("a,b,integraçao,c", "uat"),
+            ("a,b,c,barra/invalida", "prod"),
+        ],
+    )
+    def test_rejeita_caractere_invalido_e_aponta_o_ambiente(
+        self, valor: str, ambiente: str
+    ) -> None:
+        r = validate_api_ids(valor)
+        assert not r.ok
+        assert r.error_code == "api_ids.invalid"
+        assert ambiente in (r.error or "")
+
+    def test_rejeita_valor_longo_demais(self) -> None:
+        r = validate_api_ids("a" * 121)
+        assert not r.ok
+        assert r.error_code == "api_ids.invalid"

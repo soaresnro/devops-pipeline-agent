@@ -29,6 +29,21 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-28)
 
+**apiId do APIM vira um por ambiente (2026-07-28).** O param `apiId` da pipeline dotnet foi
+substituido por **`apiIdDev`/`apiIdQa`/`apiIdUat`/`apiIdProd`** (so api; worker/cronjob continuam sem
+nenhum). A pergunta unica virou a fase **`ASK_API_IDS`** (`handle_api_ids` / `validate_api_ids`), que
+aceita duas formas: **um valor unico**, replicado nos quatro ambientes, ou **os quatro separados por
+virgula na ordem dev,qa,uat,prod**. Qualquer outra quantidade (2, 3, 5+) re-pergunta, e os erros
+apontam o ambiente da posicao invalida. O eco confirma explicitamente qual caso ocorreu
+(`apiId (o mesmo para dev, qa, uat, prod): X` vs `apiIds: dev=..., qa=...`), sem exigir um sim/nao
+extra — a fase CONFIRM ja fecha a sessao.
+
+A ordem canonica e `validation.APIM_ENVIRONMENTS` (`("dev","qa","uat","prod")`), fixa pelo contrato do
+template-aks — **nao confundir com `DEVOPS_ENVIRONMENTS`**, que controla os overrides do Helm e pode
+ser customizado. `SessionState.api_id: str` virou `api_ids: dict[str, str]`; `build_bundle`/`dry_run`
+recebem `api_ids: dict[str, str] | None` e `_build_template_context` normaliza com as quatro chaves
+para o template nao depender de `default` (StrictUndefined). 304 testes verdes, `mypy src` limpo.
+
 **Unified service tagging do Datadog em uat/prod (2026-07-28).** Os overrides de **uat e prod**
 (so eles; dev/qa nao recebem nada) ganharam `podLabels` com `tags.datadoghq.com/env|service|version`
 e as envs `DD_ENV`/`DD_SERVICE`/`DD_VERSION`. Nome do servico: `{namespace}-{applicationName}-k8s-{env}`

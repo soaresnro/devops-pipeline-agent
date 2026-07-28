@@ -95,6 +95,11 @@ _DNS_LABEL_MAX_LEN = 63
 # apiId do APIM: identificador com letras/digitos e . _ - (comeca com letra/digito).
 _API_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# Ambientes do APIM na ORDEM em que o usuario informa os apiIds e em que a pipeline
+# declara os parametros (apiIdDev/apiIdQa/apiIdUat/apiIdProd). Fixo pelo contrato do
+# template-aks - nao confundir com DEVOPS_ENVIRONMENTS, que controla os overrides do Helm.
+APIM_ENVIRONMENTS: tuple[str, ...] = ("dev", "qa", "uat", "prod")
+
 
 def validate_repo_url(
     url: str,
@@ -295,21 +300,42 @@ def validate_apim_path(value: str) -> ToolResult[str]:
     return ToolResult.success(path)
 
 
-def validate_api_id(value: str) -> ToolResult[str]:
-    """Valida o apiId do APIM (identificador; obrigatorio, sem default).
+def validate_api_ids(value: str) -> ToolResult[dict[str, str]]:
+    """Valida os apiIds do APIM, um por ambiente (obrigatorio, sem default).
 
-    Aceita letras, digitos e os caracteres . _ - (ex.: api-utils, utils-v1).
+    Aceita duas formas: um valor unico (aplicado aos quatro ambientes) ou os quatro
+    separados por virgula, na ordem de `APIM_ENVIRONMENTS` (dev, qa, uat, prod).
+    Cada apiId aceita letras, digitos e os caracteres . _ - (ex.: api-utils, utils-v1).
     """
     if not value or not value.strip():
-        return ToolResult.failure("apiId nao informado.", code="api_id.empty")
-    api_id = value.strip()
-    if len(api_id) > 120 or not _API_ID_RE.match(api_id):
+        return ToolResult.failure("apiIds nao informados.", code="api_ids.empty")
+
+    partes = [parte.strip() for parte in value.split(",")]
+    if len(partes) == 1:
+        partes = partes * len(APIM_ENVIRONMENTS)
+    elif len(partes) != len(APIM_ENVIRONMENTS):
         return ToolResult.failure(
-            "apiId invalido. Use letras, digitos e os caracteres . _ - "
-            "(comece com letra ou digito; ex.: api-utils).",
-            code="api_id.invalid",
+            f"Informe 1 apiId (o mesmo para todos os ambientes) ou {len(APIM_ENVIRONMENTS)} "
+            f"separados por virgula na ordem {', '.join(APIM_ENVIRONMENTS)} "
+            f"(recebido: {len(partes)}).",
+            code="api_ids.count",
         )
-    return ToolResult.success(api_id)
+
+    api_ids: dict[str, str] = {}
+    for env, api_id in zip(APIM_ENVIRONMENTS, partes, strict=True):
+        if not api_id:
+            return ToolResult.failure(
+                f"apiId de {env} nao informado (nao deixe posicoes vazias entre as virgulas).",
+                code="api_ids.empty_item",
+            )
+        if len(api_id) > 120 or not _API_ID_RE.match(api_id):
+            return ToolResult.failure(
+                f"apiId de {env} invalido ('{api_id}'). Use letras, digitos e os caracteres "
+                ". _ - (comece com letra ou digito; ex.: api-utils).",
+                code="api_ids.invalid",
+            )
+        api_ids[env] = api_id
+    return ToolResult.success(api_ids)
 
 
 def validate_ingress_host(value: str) -> ToolResult[str]:

@@ -130,7 +130,7 @@ O agente faz as perguntas em sequencia. Exemplo (aplicacao .NET tipo API):
 | Assembly de entrada (.dll) | `MinhaApi.Services.dll` |
 | applicationName | `api-minha` *(enter usa o nome do repo)* |
 | pathApiManagementService | *(enter deriva de applicationName)* |
-| **apiId** | `api-minha` *(obrigatorio - digite; nao tem default)* |
+| **apiIds do APIM** | `api-minha` *(obrigatorio; um valor unico vale para dev/qa/uat/prod)* — ou os quatro por virgula na ordem dev,qa,uat,prod: `api-minha-dev,api-minha-qa,api-minha-uat,api-minha` |
 | Host base do ingress | *(enter deriva de `services<path>`)* |
 | **confirma? (sim/nao)** | ver abaixo |
 

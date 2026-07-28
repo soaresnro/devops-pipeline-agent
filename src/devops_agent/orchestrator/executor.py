@@ -155,7 +155,7 @@ def prepare_dry_run(
         dotnet_entrypoint=session.dotnet_entrypoint or "",
         application_name=session.application_name or "",
         apim_path=session.apim_path or "",
-        api_id=session.api_id or "",
+        api_ids=session.api_ids or {},
         ingress_host=session.ingress_host or "",
         environments=settings.environments,
         pipeline_pass_language=settings.pipeline_pass_language,
