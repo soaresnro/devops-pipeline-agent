@@ -29,6 +29,26 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-28)
 
+**Unified service tagging do Datadog em uat/prod (2026-07-28).** Os overrides de **uat e prod**
+(so eles; dev/qa nao recebem nada) ganharam `podLabels` com `tags.datadoghq.com/env|service|version`
+e as envs `DD_ENV`/`DD_SERVICE`/`DD_VERSION`. Nome do servico: `{namespace}-{applicationName}-k8s-{env}`
+(ex.: `autorizador-business-rules-api-k8s-uat`) via `scaffold.datadog_service`; como o applicationName
+ja passou por `strip_namespace_prefix`, o namespace nao duplica mesmo quando o repo o carrega no nome.
+Version fixa em `1.0` (`scaffold._DATADOG_VERSION`). Vale para api/web/worker/cronjob.
+
+O bloco `env` do override passou a ser montado em Python (`scaffold.application_env`), nao no `.j2`:
+reune defaults por ambiente + `dotnet_runtime_env` + `DD_*`, e os templates so iteram o dict — o mesmo
+conteudo precisa sair em tres formatos (map sob `microservice-chart:`, map sob `worker-chart:` e lista
+de `{name, value}` no cronjob). `render_helm_chart` injeta `app_env`/`datadog` por ambiente via
+`_env_context`. **Variaveis novas entram no helper, nao nos templates.**
+
+**GAP CONHECIDO:** microservice-chart 0.5.0 e worker-chart 1.0.0 **nao leem `.Values.podLabels`** — o
+pod template so fixa `app` e `azure.workload.identity/use`. Confirmado com `helm template`: as `DD_*`
+aplicam, as `tags.datadoghq.com/*` de api/web/worker somem no render. O chart do cronjob e nosso, entao
+ganhou `{{- with .Values.podLabels }}` e ja renderiza. Para fechar o gap: adicionar podLabels no
+deployment das base charts em `AksHelmBaseCharts`, subir a versao e re-vendorizar aqui (nada mais muda
+no agente). Decisao do usuario foi seguir so com os values agora. 280 testes verdes, `mypy src` limpo.
+
 **ENVs de runtime saem do Dockerfile e vao para os values por ambiente (2026-07-28).** O Dockerfile
 dotnet passa a ter UMA unica `ENV`: `DOTNET_RUNNING_IN_CONTAINER=true` (descreve a imagem, nao o
 ambiente). `TZ`, `ASPNETCORE_URLS` (so api), `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` e os tres

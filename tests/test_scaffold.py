@@ -364,6 +364,111 @@ class TestEnvDoDockerfileNoValues:
             assert key not in app_env
 
 
+class TestDatadogUnifiedServiceTagging:
+    """podLabels + DD_* apenas em uat/prod (ambientes com agente do Datadog coletando).
+
+    O nome do servico segue {namespace}-{applicationName}-k8s-{env}; o applicationName
+    ja vem sem o prefixo do namespace (strip_namespace_prefix), entao nao duplica.
+    """
+
+    _TAGS = (
+        "tags.datadoghq.com/env",
+        "tags.datadoghq.com/service",
+        "tags.datadoghq.com/version",
+    )
+
+    @pytest.mark.parametrize(
+        ("app_type", "chave"),
+        [
+            (AppType.API, "microservice-chart"),
+            (AppType.WEB, "microservice-chart"),
+            (AppType.WORKER, "worker-chart"),
+        ],
+    )
+    @pytest.mark.parametrize("env", ["uat", "prod"])
+    def test_uat_e_prod_recebem_podlabels_e_dd_envs(
+        self, app_type: AppType, chave: str, env: str, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == f"helm/environments/{env}/values.yaml")
+        secao = yaml.safe_load(ev.content)[chave]
+        servico = f"payments-prod-payments-api-k8s-{env}"
+        assert secao["podLabels"] == {
+            "tags.datadoghq.com/env": env,
+            "tags.datadoghq.com/service": servico,
+            "tags.datadoghq.com/version": "1.0",
+        }
+        assert secao["env"]["DD_ENV"] == env
+        assert secao["env"]["DD_SERVICE"] == servico
+        assert secao["env"]["DD_VERSION"] == "1.0"
+
+    @pytest.mark.parametrize(
+        ("app_type", "chave"),
+        [
+            (AppType.API, "microservice-chart"),
+            (AppType.WEB, "microservice-chart"),
+            (AppType.WORKER, "worker-chart"),
+        ],
+    )
+    @pytest.mark.parametrize("env", ["dev", "qa"])
+    def test_dev_e_qa_nao_recebem_datadog(
+        self, app_type: AppType, chave: str, env: str, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(app_type=app_type, **base_ctx)  # type: ignore[arg-type]
+        ev = next(f for f in bundle.files if f.path == f"helm/environments/{env}/values.yaml")
+        secao = yaml.safe_load(ev.content)[chave]
+        assert "podLabels" not in secao
+        assert not [k for k in secao.get("env", {}) if k.startswith("DD_")]
+
+    def test_cronjob_uat_recebe_datadog_no_formato_do_chart(
+        self, base_ctx: dict[str, object]
+    ) -> None:
+        # chart self-contained: podLabels no topo e env como lista de {name, value}
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        uat = yaml.safe_load(
+            next(f for f in bundle.files if f.path == "helm/environments/uat/values.yaml").content
+        )
+        assert uat["podLabels"]["tags.datadoghq.com/service"] == "payments-prod-payments-api-k8s-uat"
+        app_env = {item["name"]: item["value"] for item in uat["env"]}
+        assert app_env["DD_SERVICE"] == "payments-prod-payments-api-k8s-uat"
+        assert app_env["DD_VERSION"] == "1.0"
+        dev = yaml.safe_load(
+            next(f for f in bundle.files if f.path == "helm/environments/dev/values.yaml").content
+        )
+        assert "podLabels" not in dev
+
+    def test_cronjob_chart_renderiza_podlabels(self, base_ctx: dict[str, object]) -> None:
+        # o chart do cronjob e nosso, entao o template le .Values.podLabels
+        bundle = build_bundle(app_type=AppType.CRONJOB, **base_ctx)  # type: ignore[arg-type]
+        cronjob = next(
+            f for f in bundle.files if f.path == "helm/base/templates/cronjob.yaml"
+        ).content
+        assert ".Values.podLabels" in cronjob
+        base_values = yaml.safe_load(
+            next(f for f in bundle.files if f.path == "helm/base/values.yaml").content
+        )
+        assert base_values["podLabels"] == {}
+
+    def test_service_name_usa_application_name_sem_prefixo_do_namespace(self) -> None:
+        # ns=autorizador + repo autorizador-business-rules-api -> o namespace nao duplica
+        bundle = build_bundle(
+            app_name="autorizador-business-rules-api",
+            app_type=AppType.API,
+            namespace="autorizador",
+            branch="main",
+            acr_name="contosoacr",
+            devops_templates_repo_name="Platform/devops-templates",
+            devops_templates_tag="v3",
+            application_name="autorizador-business-rules-api",
+            api_id="br-api",
+        )
+        ev = next(f for f in bundle.files if f.path == "helm/environments/uat/values.yaml")
+        mc = yaml.safe_load(ev.content)["microservice-chart"]
+        esperado = "autorizador-business-rules-api-k8s-uat"
+        assert mc["env"]["DD_SERVICE"] == esperado
+        assert mc["podLabels"]["tags.datadoghq.com/service"] == esperado
+
+
 class TestRenderedContent:
     def test_pipeline_dotnet_estrutura_do_modelo_do_time(
         self,
