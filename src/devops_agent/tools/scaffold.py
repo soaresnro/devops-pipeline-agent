@@ -316,8 +316,8 @@ def render_pipeline_yaml(context: dict[str, object], *, stack: str = "_default")
 # Base charts do time (em AksHelmBaseCharts) por app_type: (nome, versao, kind).
 # cronjob nao tem base chart -> chart self-contained (templates proprios).
 _BASE_CHARTS: dict[AppType, tuple[str, str, str]] = {
-    AppType.API: ("microservice-chart", "0.4.4", "microservice"),
-    AppType.WEB: ("microservice-chart", "0.4.4", "microservice"),
+    AppType.API: ("microservice-chart", "0.5.0", "microservice"),
+    AppType.WEB: ("microservice-chart", "0.5.0", "microservice"),
     AppType.WORKER: ("worker-chart", "1.0.0", "worker"),
 }
 
