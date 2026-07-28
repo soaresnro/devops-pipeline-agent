@@ -104,8 +104,8 @@ class TestVendoredBaseChart:
     @pytest.mark.parametrize(
         ("app_type", "base_chart", "version"),
         [
-            (AppType.API, "microservice-chart", "0.4.4"),
-            (AppType.WEB, "microservice-chart", "0.4.4"),
+            (AppType.API, "microservice-chart", "0.5.0"),
+            (AppType.WEB, "microservice-chart", "0.5.0"),
             (AppType.WORKER, "worker-chart", "1.0.0"),
         ],
     )

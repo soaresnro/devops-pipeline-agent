@@ -27,7 +27,20 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-07-10)
+## Estado do projeto (atualizado em 2026-07-28)
+
+**Base chart microservice-chart 0.4.4 -> 0.5.0 (2026-07-28).** Os assets vendorizados em
+`templates/helm/basechart/_vendor/` passaram a refletir o repo `AksHelmBaseCharts`
+(`D:\repositorios\AksHelmBaseCharts\base-charts`): `microservice-chart-0.5.0.tgz` + `.lock`
+(gerados por `helm dependency build` real contra o source em LF do git, para o digest do lock casar
+com a dependency), substituindo os de 0.4.4; versao bumpada em `scaffold._BASE_CHARTS` (api/web).
+A 0.5.0 acrescenta `configmap.yaml`/`secret.yaml` (envFrom + checksum annotations no deployment) e os
+blocos `pdb`/`podDisruptionBudget`/`hpa` nos values — todos com `enabled: false` por default, entao os
+overrides gerados hoje seguem validos (nao passamos a usar esses recursos ainda; candidato a backlog).
+O `worker-chart` continua em **1.0.0**: o source local difere do .tgz vendorizado apenas em
+line-endings (CRLF na working tree), entao nao foi repackado para nao criar dois artefatos distintos
+com a mesma versao. Validado com `helm lint`/`helm template` reais (api/web/worker/cronjob x dev/qa/prod).
+255 testes verdes, `mypy src` limpo.
 
 **applicationName remove prefixo igual ao namespace (2026-07-10).** Se o applicationName comecar
 com `{namespace}-`, o prefixo e removido (`scaffold.strip_namespace_prefix`, aplicado no

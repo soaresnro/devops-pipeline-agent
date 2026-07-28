@@ -182,7 +182,7 @@ class TestGitOps:
         raw = b"\x1f\x8b\x08\x00binary\x00\xff"
         files = [
             ScaffoldedFile(
-                path="helm/base/charts/microservice-chart-0.4.4.tgz",
+                path="helm/base/charts/microservice-chart-0.5.0.tgz",
                 binary_b64=base64.b64encode(raw).decode("ascii"),
             ),
         ]
@@ -191,7 +191,7 @@ class TestGitOps:
             assert cr.ok and cr.data is not None
             wr = write_files(cr.data, files)
             assert wr.ok and wr.data == 1
-            tgz = cr.data / "helm" / "base" / "charts" / "microservice-chart-0.4.4.tgz"
+            tgz = cr.data / "helm" / "base" / "charts" / "microservice-chart-0.5.0.tgz"
             assert tgz.read_bytes() == raw
 
     def test_commit_sem_mudancas_falha(self, fake_remote: Path) -> None:
