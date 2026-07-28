@@ -23,3 +23,13 @@ autoscaling:
   minReplicas: {{ replica_count }}
   maxReplicas: 10
 {%- endif %}
+{%- if dotnet_env %}
+
+env:
+  # Vindas do Dockerfile: ajustaveis por ambiente sem rebuild da imagem.
+  # Adicione outras variaveis da aplicacao conforme necessario.
+{%- for key, value in dotnet_env.items() %}
+  - name: {{ key }}
+    value: "{{ value }}"
+{%- endfor %}
+{%- endif %}

@@ -58,6 +58,9 @@ microservice-chart:
 {%- if app_type == 'api' %}
     SwaggerEnabled: "true"
 {%- endif %}
+{%- for key, value in dotnet_env.items() %}
+    {{ key }}: "{{ value }}"
+{%- endfor %}
 
   autoscaling:
     enabled: false

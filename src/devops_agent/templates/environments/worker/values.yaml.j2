@@ -15,4 +15,15 @@ worker-chart:
 
   environment: {{ env }}
 
+{%- if dotnet_env %}
+
+  env:
+    # Vindas do Dockerfile: ajustaveis por ambiente sem rebuild da imagem.
+    # Adicione outras variaveis da aplicacao conforme necessario.
+{%- for key, value in dotnet_env.items() %}
+    {{ key }}: "{{ value }}"
+{%- endfor %}
+{%- else %}
+
   env: {}  # ATUALIZE com as variaveis da aplicacao
+{%- endif %}

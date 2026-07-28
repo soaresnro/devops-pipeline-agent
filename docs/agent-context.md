@@ -29,6 +29,19 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-28)
 
+**ENVs de runtime saem do Dockerfile e vao para os values por ambiente (2026-07-28).** O Dockerfile
+dotnet passa a ter UMA unica `ENV`: `DOTNET_RUNNING_IN_CONTAINER=true` (descreve a imagem, nao o
+ambiente). `TZ`, `ASPNETCORE_URLS` (so api), `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` e os tres
+`Logging__LogLevel__*` passaram para o `env` de `helm/environments/<env>/values.yaml`, emitidos por
+`scaffold.dotnet_runtime_env(app_type, language)` e injetados no ctx por `render_helm_chart` como
+`dotnet_env`. Cobre os tres formatos de override: microservice (map, api), worker (map) e cronjob
+(lista de `{name, value}`, chart self-contained). A imagem continua instalando `tzdata` e fazendo o
+symlink de `/etc/localtime` para America/Sao_Paulo (default da imagem), agora com o caminho literal
+no `RUN` — sem `ENV TZ`. Ficam de fora: `web` (SPA estatica em nginx) e node/python/go, que ainda
+fixam `TZ`/`NODE_ENV`/`PYTHONUNBUFFERED` no proprio Dockerfile (candidato a mesmo tratamento quando
+os templates reais desses stacks chegarem). Validado com `helm template` real (api/web/worker/cronjob
+x dev/qa/uat/prod). 265 testes verdes, `mypy src` limpo.
+
 **Base chart microservice-chart 0.4.4 -> 0.5.0 (2026-07-28).** Os assets vendorizados em
 `templates/helm/basechart/_vendor/` passaram a refletir o repo `AksHelmBaseCharts`
 (`D:\repositorios\AksHelmBaseCharts\base-charts`): `microservice-chart-0.5.0.tgz` + `.lock`

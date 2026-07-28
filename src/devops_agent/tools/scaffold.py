@@ -210,6 +210,25 @@ def aspnetcore_environment(env: str) -> str:
     return _ASPNETCORE_ENVIRONMENT.get(env, "Development")
 
 
+def dotnet_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
+    """Variaveis de runtime .NET que antes eram fixadas no Dockerfile.
+
+    O Dockerfile mantem apenas `DOTNET_RUNNING_IN_CONTAINER` (descreve a imagem, nao o
+    ambiente); estas vivem no override por ambiente para serem ajustaveis sem rebuild.
+    `web` fica de fora: e sempre uma SPA estatica servida por nginx.
+    """
+    if language != Language.DOTNET or app_type == AppType.WEB:
+        return {}
+    values = {"TZ": "America/Sao_Paulo"}
+    if app_type == AppType.API:
+        values["ASPNETCORE_URLS"] = "http://+:8080"
+    values["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "false"
+    values["Logging__LogLevel__Default"] = "Warning"
+    values["Logging__LogLevel__Microsoft"] = "Warning"
+    values["Logging__LogLevel__Microsoft.Hosting.Lifetime"] = "Information"
+    return values
+
+
 def _ingress_hosts(host_base: str, env: str) -> dict[str, object]:
     """Deriva os hosts/secrets dos dois ingresses (primary + legacy) por ambiente.
 
@@ -339,10 +358,14 @@ def render_helm_chart(
     com o Chart.lock correspondente, e values aninhados sob a chave da base chart.
     cronjob (sem base chart) mantem o chart self-contained com templates.
     """
+    # Variaveis de runtime que sairam do Dockerfile e agora vivem no override por ambiente.
+    language = Language(str(context["language"]))
+    ctx = {**context, "dotnet_env": dotnet_runtime_env(app_type, language)}
+
     base = _BASE_CHARTS.get(app_type)
     if base is None:
-        return _render_selfcontained_chart(app_type, context, environments)
-    return _render_basechart_chart(base, context, environments)
+        return _render_selfcontained_chart(app_type, ctx, environments)
+    return _render_basechart_chart(base, ctx, environments)
 
 
 def _render_basechart_chart(
