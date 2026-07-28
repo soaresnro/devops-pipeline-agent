@@ -50,15 +50,18 @@ microservice-chart:
     clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
 
   environment: {{ env }}
+{%- if datadog %}
+
+  podLabels:
+    # Unified service tagging do Datadog (so uat/prod).
+    tags.datadoghq.com/env: "{{ datadog['env'] }}"
+    tags.datadoghq.com/service: "{{ datadog['service'] }}"
+    tags.datadoghq.com/version: "{{ datadog['version'] }}"
+{%- endif %}
 
   env:
     # Defaults por ambiente; adicione outras variaveis da aplicacao conforme necessario.
-    ASPNETCORE_ENVIRONMENT: "{{ aspnetcore_environment }}"
-    WEBSITE_TIME_ZONE: "America/Sao_Paulo"
-{%- if app_type == 'api' %}
-    SwaggerEnabled: "true"
-{%- endif %}
-{%- for key, value in dotnet_env.items() %}
+{%- for key, value in app_env.items() %}
     {{ key }}: "{{ value }}"
 {%- endfor %}
 

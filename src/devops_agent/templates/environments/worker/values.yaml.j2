@@ -14,13 +14,20 @@ worker-chart:
     clientId: ""  # ATUALIZE com o clientId da managed identity de {{ env }}
 
   environment: {{ env }}
+{%- if datadog %}
 
-{%- if dotnet_env %}
+  podLabels:
+    # Unified service tagging do Datadog (so uat/prod).
+    tags.datadoghq.com/env: "{{ datadog['env'] }}"
+    tags.datadoghq.com/service: "{{ datadog['service'] }}"
+    tags.datadoghq.com/version: "{{ datadog['version'] }}"
+{%- endif %}
+
+{%- if app_env %}
 
   env:
-    # Vindas do Dockerfile: ajustaveis por ambiente sem rebuild da imagem.
-    # Adicione outras variaveis da aplicacao conforme necessario.
-{%- for key, value in dotnet_env.items() %}
+    # Variaveis de runtime; adicione outras da aplicacao conforme necessario.
+{%- for key, value in app_env.items() %}
     {{ key }}: "{{ value }}"
 {%- endfor %}
 {%- else %}

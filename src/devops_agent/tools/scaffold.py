@@ -229,6 +229,56 @@ def dotnet_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
     return values
 
 
+# Unified service tagging do Datadog: so os ambientes com agente coletando.
+_DATADOG_ENVIRONMENTS = frozenset({"uat", "prod"})
+_DATADOG_VERSION = "1.0"
+
+
+def datadog_service(namespace: str, application_name: str, env: str) -> str:
+    """Nome do servico no Datadog (ex.: autorizador-business-rules-api-k8s-uat)."""
+    return f"{namespace}-{application_name}-k8s-{env}"
+
+
+def datadog_tags(namespace: str, application_name: str, env: str) -> dict[str, str]:
+    """Tags do unified service tagging (env/service/version), vazio fora de uat/prod."""
+    if env not in _DATADOG_ENVIRONMENTS:
+        return {}
+    return {
+        "env": env,
+        "service": datadog_service(namespace, application_name, env),
+        "version": _DATADOG_VERSION,
+    }
+
+
+def application_env(
+    *,
+    app_type: AppType,
+    language: Language,
+    namespace: str,
+    application_name: str,
+    env: str,
+) -> dict[str, str]:
+    """Bloco `env` do override por ambiente, montado a partir de tres fontes.
+
+    Nesta ordem: defaults por ambiente (ASPNETCORE_ENVIRONMENT/timezone/Swagger), as
+    variaveis de runtime que sairam do Dockerfile (ver `dotnet_runtime_env`) e o unified
+    service tagging do Datadog (so uat/prod).
+    """
+    values: dict[str, str] = {}
+    if app_type in (AppType.API, AppType.WEB):
+        values["ASPNETCORE_ENVIRONMENT"] = aspnetcore_environment(env)
+        values["WEBSITE_TIME_ZONE"] = "America/Sao_Paulo"
+    if app_type == AppType.API:
+        values["SwaggerEnabled"] = "true"
+    values.update(dotnet_runtime_env(app_type, language))
+    tags = datadog_tags(namespace, application_name, env)
+    if tags:
+        values["DD_ENV"] = tags["env"]
+        values["DD_SERVICE"] = tags["service"]
+        values["DD_VERSION"] = tags["version"]
+    return values
+
+
 def _ingress_hosts(host_base: str, env: str) -> dict[str, object]:
     """Deriva os hosts/secrets dos dois ingresses (primary + legacy) por ambiente.
 
@@ -358,17 +408,31 @@ def render_helm_chart(
     com o Chart.lock correspondente, e values aninhados sob a chave da base chart.
     cronjob (sem base chart) mantem o chart self-contained com templates.
     """
-    # Variaveis de runtime que sairam do Dockerfile e agora vivem no override por ambiente.
-    language = Language(str(context["language"]))
-    ctx = {**context, "dotnet_env": dotnet_runtime_env(app_type, language)}
-
     base = _BASE_CHARTS.get(app_type)
     if base is None:
-        return _render_selfcontained_chart(app_type, ctx, environments)
-    return _render_basechart_chart(base, ctx, environments)
+        return _render_selfcontained_chart(app_type, context, environments)
+    return _render_basechart_chart(app_type, base, context, environments)
+
+
+def _env_context(app_type: AppType, context: dict[str, object], env: str) -> dict[str, object]:
+    """Parte do contexto que muda por ambiente: bloco `env` da aplicacao + tags do Datadog."""
+    namespace = str(context["namespace"])
+    application_name = str(context["application_name"])
+    return {
+        "env": env,
+        "app_env": application_env(
+            app_type=app_type,
+            language=Language(str(context["language"])),
+            namespace=namespace,
+            application_name=application_name,
+            env=env,
+        ),
+        "datadog": datadog_tags(namespace, application_name, env),
+    }
 
 
 def _render_basechart_chart(
+    app_type: AppType,
     base: tuple[str, str, str],
     context: dict[str, object],
     environments: list[str],
@@ -404,8 +468,7 @@ def _render_basechart_chart(
         # dev vazio, mas o agente gera o override para o usuario preencher/ajustar.
         env_ctx = {
             **ctx,
-            "env": env,
-            "aspnetcore_environment": aspnetcore_environment(env),
+            **_env_context(app_type, ctx, env),
             **_ingress_hosts(host_base, env),
         }
         env_values = _render_template(f"environments/{kind}/values.yaml.j2", env_ctx)
@@ -442,7 +505,9 @@ def _render_selfcontained_chart(
         files.append(ScaffoldedFile(path=f"{_CHART_ROOT}/templates/{rel}", content=content))
 
     for env in environments:
-        env_values = _render_template("environments/values.yaml.j2", {**context, "env": env})
+        env_values = _render_template(
+            "environments/values.yaml.j2", {**context, **_env_context(app_type, context, env)}
+        )
         files.append(
             ScaffoldedFile(path=f"{_ENVIRONMENTS_ROOT}/{env}/values.yaml", content=env_values)
         )
