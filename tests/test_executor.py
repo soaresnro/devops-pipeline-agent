@@ -252,11 +252,37 @@ class TestPipelineTemplatePath:
             == "pipelines/go-k8s-app.yaml"
         )
 
-    def test_linguagem_sem_template_cai_no_default(self) -> None:
+    def test_linguagem_sem_contrato_proprio_cai_no_default(self) -> None:
         s = self._settings(devops_template_default="pipelines/generico.yaml")
         assert (
-            exec_mod._pipeline_template_path(s, AppType.WORKER, Language.PYTHON)
+            exec_mod._pipeline_template_path(s, AppType.WORKER, Language.GO)
             == "pipelines/generico.yaml"
+        )
+
+    @pytest.mark.parametrize(
+        ("language", "esperado"),
+        [
+            (Language.DOTNET, "pipelines/template-aks.yml"),
+            (Language.PYTHON, "pipelines/template-aks-python.yml"),
+        ],
+    )
+    def test_stack_com_contrato_real_nao_cai_no_default(
+        self, language: Language, esperado: str
+    ) -> None:
+        # o bloco extends.parameters desses stacks so compila contra o template do
+        # contrato: cair no generico geraria pipeline com parametros nao declarados
+        s = self._settings(devops_template_default="pipelines/generico.yaml")
+        assert exec_mod._pipeline_template_path(s, AppType.API, language) == esperado
+
+    @pytest.mark.parametrize("language", [Language.DOTNET, Language.PYTHON])
+    def test_env_sobrepoe_o_default_do_stack(self, language: Language) -> None:
+        s = self._settings(
+            devops_template_dotnet="pipelines/custom-dotnet.yml",
+            devops_template_python="pipelines/custom-python.yml",
+        )
+        assert (
+            exec_mod._pipeline_template_path(s, AppType.API, language)
+            == f"pipelines/custom-{language.value}.yml"
         )
 
     def test_web_reaproveita_template_de_node(self) -> None:

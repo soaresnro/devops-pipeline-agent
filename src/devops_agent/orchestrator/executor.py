@@ -11,6 +11,7 @@ from pathlib import Path
 
 from devops_agent.config import Settings
 from devops_agent.models import AppType, ExecutionResult, Language, Phase, SessionState, ToolResult
+from devops_agent.orchestrator import state_machine
 from devops_agent.tools.auth import acquire_app_token, acquire_user_obo_token
 from devops_agent.tools.azdo import AzdoClient
 from devops_agent.tools.detection import LanguageDetection, detect_language
@@ -26,6 +27,8 @@ from devops_agent.tools.git_ops import (
 from devops_agent.tools.scaffold import (
     DEFAULT_CRON_SCHEDULE,
     DEFAULT_DOTNET_VERSION,
+    DEFAULT_PYTHON_PACKAGE_MANAGER,
+    DEFAULT_PYTHON_VERSION,
     DryRunResult,
     ScaffoldBundle,
     build_bundle,
@@ -153,7 +156,11 @@ def prepare_dry_run(
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         dotnet_version=session.dotnet_version or DEFAULT_DOTNET_VERSION,
         dotnet_entrypoint=session.dotnet_entrypoint or "",
+        python_version=session.python_version or DEFAULT_PYTHON_VERSION,
+        python_package_manager=session.python_package_manager or DEFAULT_PYTHON_PACKAGE_MANAGER,
+        python_entrypoint=session.python_entrypoint or "",
         application_name=session.application_name or "",
+        uses_apim=session.uses_apim,
         apim_path=session.apim_path or "",
         api_ids=session.api_ids or {},
         ingress_host=session.ingress_host or "",
@@ -215,12 +222,9 @@ def detect_language_step(
     assert detection is not None  # detect_language sempre retorna sucesso
     if detection.is_conclusive and detection.language is not None:
         session.language = detection.language
-        # dotnet precisa da versao antes de validar; demais seguem direto.
-        session.phase = (
-            Phase.ASK_DOTNET_VERSION
-            if detection.language == Language.DOTNET
-            else Phase.VALIDATE
-        )
+        # Stacks com template real (dotnet/python) coletam os parametros do contrato
+        # antes de validar; os demais seguem direto.
+        session.phase = state_machine.first_phase_for_language(detection.language) or Phase.VALIDATE
         return ToolResult.success(detection)
 
     return _inconclusive(detection.candidates)
@@ -231,10 +235,21 @@ def _derive_acr_name(settings: Settings) -> str:
     return f"{settings.azdo_org.lower()}acr"
 
 
+# Caminho do template para os stacks com contrato real. O bloco extends.parameters
+# gerado para esses stacks e especifico desses templates: cair no
+# devops_template_default (generico) produziria uma pipeline que nao compila, com
+# parametros que o template destino nao declara. O .env ainda sobrepoe.
+_STACK_TEMPLATE_DEFAULTS: dict[Language, str] = {
+    Language.DOTNET: "pipelines/template-aks.yml",
+    Language.PYTHON: "pipelines/template-aks-python.yml",
+}
+
+
 def _pipeline_template_path(settings: Settings, app_type: AppType, language: Language) -> str:
     """Escolhe o template de pipeline pela linguagem; web reaproveita o de node.
 
-    Cai no devops_template_default quando a linguagem nao tem caminho proprio.
+    Precedencia: DEVOPS_TEMPLATE_<LINGUAGEM> > default do stack (quando a linguagem tem
+    contrato proprio) > DEVOPS_TEMPLATE_DEFAULT.
     """
     key = Language.NODE if app_type == AppType.WEB else language
     by_language = {
@@ -243,7 +258,11 @@ def _pipeline_template_path(settings: Settings, app_type: AppType, language: Lan
         Language.PYTHON: settings.devops_template_python,
         Language.GO: settings.devops_template_go,
     }
-    return by_language.get(key) or settings.devops_template_default
+    return (
+        by_language.get(key)
+        or _STACK_TEMPLATE_DEFAULTS.get(key)
+        or settings.devops_template_default
+    )
 
 
 def _timestamp_slug() -> str:

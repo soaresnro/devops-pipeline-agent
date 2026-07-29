@@ -22,6 +22,7 @@ from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.orchestrator import executor as exec_mod
 from devops_agent.orchestrator import state_machine as sm
 from devops_agent.tools import auth
+from devops_agent.tools.scaffold import default_python_entrypoint
 
 app = typer.Typer(
     add_completion=False,
@@ -166,10 +167,51 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_PYTHON_VERSION:
+        _print_agent(sm.question_for(Phase.ASK_PYTHON_VERSION))
+        raw = _ask("(enter para 3.12) >")
+        step = sm.handle_python_version(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.ASK_PYTHON_PACKAGE_MANAGER:
+        _print_agent(sm.question_for(Phase.ASK_PYTHON_PACKAGE_MANAGER))
+        raw = _ask("(pip / poetry - enter para pip) >")
+        step = sm.handle_python_package_manager(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.ASK_PYTHON_ENTRYPOINT:
+        _print_agent(sm.question_for(Phase.ASK_PYTHON_ENTRYPOINT))
+        default_cmd = default_python_entrypoint(session.app_type or AppType.API)
+        raw = _ask(f"(enter para '{default_cmd}') >")
+        step = sm.handle_python_entrypoint(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.ASK_APPLICATION_NAME:
         _print_agent(sm.question_for(Phase.ASK_APPLICATION_NAME))
         raw = _ask(f"(enter para {session.app_name}) >")
         step = sm.handle_application_name(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
+    if session.phase == Phase.ASK_USES_APIM:
+        _print_agent(sm.question_for(Phase.ASK_USES_APIM))
+        raw = _ask("(sim / nao) >")
+        step = sm.handle_uses_apim(session, raw)
         if step.error:
             _print_error(step.message_to_user)
         else:
@@ -187,8 +229,13 @@ def _run_phase(session: SessionState, settings: object) -> bool:
         return True
 
     if session.phase == Phase.ASK_API_IDS:
-        _print_agent(sm.question_for(Phase.ASK_API_IDS))
-        raw = _ask("(apiId unico ou dev,qa,uat,prod) >")
+        _print_agent(sm.api_ids_question(session.language))
+        hint = (
+            "(apiId unico) >"
+            if sm.api_ids_single(session.language)
+            else "(apiId unico ou dev,qa,uat,prod) >"
+        )
+        raw = _ask(hint)
         step = sm.handle_api_ids(session, raw)
         if step.error:
             _print_error(step.message_to_user)

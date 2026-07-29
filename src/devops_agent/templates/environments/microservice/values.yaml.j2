@@ -21,7 +21,7 @@ microservice-chart:
           paths:
             - path: /
               pathType: Prefix
-              port: 8080
+              port: {{ container_port }}
 
     - name: {{ application_name }}-legacy
       enabled: true
@@ -35,7 +35,7 @@ microservice-chart:
           paths:
             - path: /
               pathType: Prefix
-              port: 8080
+              port: {{ container_port }}
 
   replicaCount: 1
 

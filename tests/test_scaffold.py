@@ -14,13 +14,19 @@ class TestPipelineStack:
         assert _pipeline_stack(AppType.API, Language.DOTNET) == "dotnet"
         assert _pipeline_stack(AppType.CRONJOB, Language.DOTNET) == "dotnet"
 
-    def test_nao_dotnet_usa_default(self) -> None:
+    def test_python_nao_web_usa_stack_python(self) -> None:
+        assert _pipeline_stack(AppType.API, Language.PYTHON) == "python"
+        assert _pipeline_stack(AppType.WORKER, Language.PYTHON) == "python"
+        assert _pipeline_stack(AppType.CRONJOB, Language.PYTHON) == "python"
+
+    def test_sem_template_real_usa_default(self) -> None:
         assert _pipeline_stack(AppType.API, Language.GO) == "_default"
         assert _pipeline_stack(AppType.WORKER, Language.NODE) == "_default"
 
     def test_web_sempre_default(self) -> None:
-        # web ignora a linguagem; nao usa o stack dotnet
+        # web ignora a linguagem; nao usa os stacks dotnet/python
         assert _pipeline_stack(AppType.WEB, Language.DOTNET) == "_default"
+        assert _pipeline_stack(AppType.WEB, Language.PYTHON) == "_default"
 
 
 @pytest.fixture
@@ -360,8 +366,12 @@ class TestEnvDoDockerfileNoValues:
         bundle = build_bundle(app_type=AppType.API, language=language, **base_ctx)  # type: ignore[arg-type]
         ev = next(f for f in bundle.files if f.path == "helm/environments/prod/values.yaml")
         app_env = yaml.safe_load(ev.content)["microservice-chart"]["env"]
-        for key in self._MOVIDAS:
+        # TZ fica de fora da lista: e comum a mais de um stack (python tambem emite)
+        for key in (k for k in self._MOVIDAS if k != "TZ"):
             assert key not in app_env
+        # defaults do runtime .NET tambem nao valem para outras linguagens
+        assert "ASPNETCORE_ENVIRONMENT" not in app_env
+        assert "SwaggerEnabled" not in app_env
 
 
 class TestDatadogUnifiedServiceTagging:
@@ -467,6 +477,366 @@ class TestDatadogUnifiedServiceTagging:
         esperado = "autorizador-business-rules-api-k8s-uat"
         assert mc["env"]["DD_SERVICE"] == esperado
         assert mc["podLabels"]["tags.datadoghq.com/service"] == esperado
+
+
+class TestPipelinePython:
+    """Contrato do template-aks-python: parametros declarados la, nada mais.
+
+    Emitir parametro nao declarado quebra a compilacao da pipeline no Azure DevOps.
+    """
+
+    # Nomes exatos declarados em pipelines/template-aks-python.yml (AzurePipelinesTemplates).
+    _PARAMS_DECLARADOS = frozenset(
+        {
+            "deploymentStrategy",
+            "deployAKS",
+            "ApplicationType",
+            "projectType",
+            "pythonVersion",
+            "packageManager",
+            "requirementsFile",
+            "workingDirectory",
+            "sourceFolder",
+            "applicationName",
+            "namespace",
+            "runLint",
+            "lintTool",
+            "runTests",
+            "testPath",
+            "testRequirementsFile",
+            "minimumCoverage",
+            "usePrivateFeed",
+            "pythonFeed",
+            "imageName",
+            "imageTag",
+            "dockerfilePath",
+            "failOnVulnerabilities",
+            "pathApiManagementService",
+            "apiId",
+            "pathAutomation",
+            "keyvault",
+            "enableApim",
+            "condition",
+            "generatePackage",
+            "projectsToPackage",
+            "vstsFeed",
+        }
+    )
+
+    def _params(self, **kwargs: object) -> dict[str, object]:
+        bundle = build_bundle(language=Language.PYTHON, **kwargs)  # type: ignore[arg-type]
+        pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
+        return dict(yaml.safe_load(pipeline.content)["extends"]["parameters"])
+
+    @pytest.mark.parametrize("app_type", [AppType.API, AppType.WORKER, AppType.CRONJOB])
+    def test_so_emite_parametros_declarados_no_template(
+        self, app_type: AppType, base_ctx: dict[str, object]
+    ) -> None:
+        params = self._params(app_type=app_type, **base_ctx)
+        assert set(params) <= self._PARAMS_DECLARADOS
+
+    def test_estrutura_do_modelo_do_time(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            language=Language.PYTHON,
+            pipeline_template_path="pipelines/template-aks-python.yml",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        parsed = yaml.safe_load(
+            next(f for f in bundle.files if f.path == "azure-pipelines.yaml").content
+        )
+        assert parsed["name"] == "$(Build.SourceBranchName).$(Build.BuildId)"
+        assert parsed["trigger"]["branches"]["include"] == [
+            "master",
+            "develop",
+            "release/*",
+            "hotfix/*",
+            "feature/*",
+        ]
+        repos = {r["repository"]: r for r in parsed["resources"]["repositories"]}
+        # como o dotnet, referencia o repo de templates por BRANCH
+        assert repos["templates"]["ref"] == "refs/heads/master"
+        assert "manifests" not in repos
+        assert parsed["pool"]["name"] == "agt_pool_linux_vmss"
+        var_groups = [v["group"] for v in parsed["variables"] if "group" in v]
+        assert "Sonarqube" in var_groups and "k8s-prod" in var_groups
+        # alias @templates; o caminho vem do executor (ver _STACK_TEMPLATE_DEFAULTS)
+        assert parsed["extends"]["template"] == "pipelines/template-aks-python.yml@templates"
+
+    def test_imageTag_e_variavel_alem_de_parametro(self, base_ctx: dict[str, object]) -> None:
+        # a task Tokenizer troca __imageTag__ nos values do Helm por uma VARIAVEL de
+        # mesmo nome: sem a variavel, o parametro sozinho nao resolve o token
+        parsed = yaml.safe_load(
+            next(
+                f
+                for f in build_bundle(
+                    app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+                ).files
+                if f.path == "azure-pipelines.yaml"
+            ).content
+        )
+        variaveis = {v["name"]: v["value"] for v in parsed["variables"] if "name" in v}
+        assert variaveis["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
+        assert variaveis["SQ_PROJECT_KEY"] == "$(Build.Repository.Name)"
+        assert parsed["extends"]["parameters"]["imageTag"] == "$(imageTag)"
+
+    def test_params_api(self, base_ctx: dict[str, object]) -> None:
+        params = self._params(
+            app_type=AppType.API,
+            python_version="3.11",
+            python_package_manager="poetry",
+            application_name="api-utils",
+            apim_path="utils",
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils"),
+            **base_ctx,
+        )
+        assert params["ApplicationType"] == "python"
+        assert params["projectType"] == "api"
+        assert params["pythonVersion"] == "3.11"
+        assert params["packageManager"] == "poetry"
+        assert params["applicationName"] == "api-utils"
+        assert params["namespace"] == "payments-prod"
+        assert params["deploymentStrategy"] == "rolling"
+        assert params["enableApim"] is True
+        assert params["pathApiManagementService"] == "utils"
+        # apiId unico (o template python nao tem apiIdDev/Qa/Uat/Prod)
+        assert params["apiId"] == "api-utils"
+        assert not [k for k in params if k.startswith("apiId") and k != "apiId"]
+        assert params["imageName"] == "$(Build.Repository.Name)"
+        assert params["imageTag"] == "$(imageTag)"
+        assert params["dockerfilePath"] == "Dockerfile"
+        assert params["failOnVulnerabilities"] is False
+        assert params["keyvault"] == ""
+        # poetry nao usa requirementsFile (o build.yml resolve pelo poetry.lock)
+        assert "requirementsFile" not in params
+        # nenhum parametro do contrato dotnet vaza para o python
+        assert "dotNetVersion" not in params
+
+    def test_pip_emite_requirements_file(self, base_ctx: dict[str, object]) -> None:
+        params = self._params(app_type=AppType.API, python_package_manager="pip", **base_ctx)
+        assert params["requirementsFile"] == "requirements.txt"
+
+    def test_quality_gates(self, base_ctx: dict[str, object]) -> None:
+        # runTests desligado (repo sem pasta tests quebraria no primeiro run), mas com
+        # testPath/minimumCoverage ja preenchidos para o time so trocar o flag
+        params = self._params(app_type=AppType.API, **base_ctx)
+        assert params["runTests"] is False
+        assert params["testPath"] == "tests"
+        assert params["testRequirementsFile"] == "requirements-dev.txt"
+        assert params["minimumCoverage"] == 80
+        assert params["runLint"] is True
+        assert params["lintTool"] == "ruff"
+        assert params["sourceFolder"] == "app"
+
+    @pytest.mark.parametrize(
+        ("app_type", "project_type"),
+        [(AppType.API, "api"), (AppType.WORKER, "worker"), (AppType.CRONJOB, "worker")],
+    )
+    def test_project_type_por_tipo(
+        self, app_type: AppType, project_type: str, base_ctx: dict[str, object]
+    ) -> None:
+        # projectType do template so aceita api|worker; cronjob deploya como worker
+        params = self._params(app_type=app_type, **base_ctx)
+        assert params["projectType"] == project_type
+
+    @pytest.mark.parametrize("app_type", [AppType.WORKER, AppType.CRONJOB])
+    def test_apim_so_para_api(self, app_type: AppType, base_ctx: dict[str, object]) -> None:
+        params = self._params(app_type=app_type, **base_ctx)
+        assert params["enableApim"] is False
+        assert "apiId" not in params
+        assert "pathApiManagementService" not in params
+
+    def test_api_sem_apim_nao_emite_path_nem_apiid(self, base_ctx: dict[str, object]) -> None:
+        # resposta 'nao' na fase ASK_USES_APIM
+        params = self._params(app_type=AppType.API, uses_apim=False, **base_ctx)
+        assert params["enableApim"] is False
+        assert "pathApiManagementService" not in params
+        assert "apiId" not in params
+
+    def test_api_com_apim_emite_path_e_apiid(self, base_ctx: dict[str, object]) -> None:
+        params = self._params(
+            app_type=AppType.API,
+            uses_apim=True,
+            apim_path="cotacao",
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-cotacao"),
+            **base_ctx,
+        )
+        assert params["enableApim"] is True
+        assert params["pathApiManagementService"] == "cotacao"
+        assert params["apiId"] == "api-cotacao"
+
+    def test_web_python_cai_no_default(self, base_ctx: dict[str, object]) -> None:
+        # web e sempre SPA em nginx: ignora a linguagem e usa o contrato generico
+        params = self._params(app_type=AppType.WEB, **base_ctx)
+        assert params["appType"] == "web"
+        assert "ApplicationType" not in params
+
+
+class TestDockerfilePython:
+    """Modelo do time: multi-stage slim, pip install --user copiado para o usuario
+    nao-root, ENVs de imagem no proprio Dockerfile e porta 8000."""
+
+    def test_builda_do_codigo_fonte_com_pip(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        # a pipeline python nao publica artefato (downloadArtifact: false): o install
+        # das dependencias acontece na imagem, em estagio de build separado
+        assert "AS builder" in df
+        assert "build-essential" in df
+        assert "COPY requirements.txt ." in df
+        assert "pip install --no-cache-dir --user -r requirements.txt" in df
+        assert "COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local" in df
+        assert "poetry" not in df
+
+    def test_roda_como_usuario_nao_root(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "RUN useradd --create-home --shell /bin/bash appuser" in df
+        assert "USER appuser" in df
+        assert "COPY --chown=appuser:appuser . ." in df
+        assert "RUN mkdir -p /app/data /app/temp /app/logs" in df
+
+    def test_envs_de_imagem_no_dockerfile(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        envs = [ln.strip() for ln in df.splitlines() if ln.startswith("ENV ")]
+        assert envs == [
+            "ENV PATH=/home/appuser/.local/bin:$PATH",
+            "ENV PYTHONDONTWRITEBYTECODE=1",
+            "ENV PYTHONUNBUFFERED=1",
+            "ENV PYTHONPATH=/app",
+        ]
+
+    def test_sem_libs_de_imagem_video_por_padrao(self, base_ctx: dict[str, object]) -> None:
+        # libgl1/libglib2.0-0 sao deps de OpenCV/Pillow: quem precisar acrescenta
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "libgl1" not in df
+        assert "libglib" not in df
+
+    def test_poetry_exporta_o_lock(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            language=Language.PYTHON,
+            python_package_manager="poetry",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "COPY pyproject.toml poetry.lock* ./" in df
+        assert "poetry export" in df
+        # tambem instala com --user, para o COPY do estagio de runtime funcionar igual
+        assert "pip install --no-cache-dir --user -r requirements.txt" in df
+        assert "COPY requirements.txt ." not in df
+
+    def test_versao_define_a_tag_da_imagem(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            language=Language.PYTHON,
+            python_version="3.11",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert df.count("FROM python:3.11-slim") == 2
+        assert "alpine" not in df
+
+    def test_cmd_em_exec_form(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API,
+            language=Language.PYTHON,
+            python_entrypoint="gunicorn app.main:app --bind 0.0.0.0:8080",
+            **base_ctx,  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert 'CMD ["gunicorn", "app.main:app", "--bind", "0.0.0.0:8080"]' in df
+
+    @pytest.mark.parametrize(
+        ("app_type", "cmd"),
+        [
+            (AppType.API, 'CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]'),
+            (AppType.WORKER, 'CMD ["python", "main.py"]'),
+            (AppType.CRONJOB, 'CMD ["python", "main.py"]'),
+        ],
+    )
+    def test_cmd_default_por_tipo(
+        self, app_type: AppType, cmd: str, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=app_type, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert cmd in df
+
+    @pytest.mark.parametrize("app_type", [AppType.WORKER, AppType.CRONJOB])
+    def test_sem_expose_nem_healthcheck_fora_de_api(
+        self, app_type: AppType, base_ctx: dict[str, object]
+    ) -> None:
+        bundle = build_bundle(
+            app_type=app_type, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "EXPOSE" not in df
+        assert "HEALTHCHECK" not in df
+
+    @pytest.mark.parametrize(
+        ("app_type", "chave"),
+        [(AppType.API, "microservice-chart"), (AppType.WORKER, "worker-chart")],
+    )
+    def test_values_recebem_so_o_que_descreve_o_ambiente(
+        self, app_type: AppType, chave: str, base_ctx: dict[str, object]
+    ) -> None:
+        # PYTHON*/PATH descrevem a imagem e ficam no Dockerfile (modelo do time);
+        # o values leva o que varia por ambiente
+        bundle = build_bundle(
+            app_type=app_type, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        ev = next(f for f in bundle.files if f.path == "helm/environments/qa/values.yaml")
+        app_env = yaml.safe_load(ev.content)[chave]["env"]
+        assert app_env["TZ"] == "America/Sao_Paulo"
+        assert "PYTHONUNBUFFERED" not in app_env
+        assert "PYTHONPATH" not in app_env
+        assert "ASPNETCORE_ENVIRONMENT" not in app_env
+
+
+class TestPortaPorLinguagem:
+    """A porta atravessa Dockerfile, service e ingresses - tem que casar nos tres."""
+
+    def test_python_api_usa_8000_ponta_a_ponta(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "EXPOSE 8000" in df
+        assert "--port 8000" in df.replace('", "', " ")
+
+        base_values = next(f for f in bundle.files if f.path == "helm/base/values.yaml")
+        assert yaml.safe_load(base_values.content)["microservice-chart"]["service"]["port"] == 8000
+
+        ev = next(f for f in bundle.files if f.path == "helm/environments/prod/values.yaml")
+        for ingress in yaml.safe_load(ev.content)["microservice-chart"]["ingresses"]:
+            assert ingress["rules"][0]["paths"][0]["port"] == 8000
+
+    def test_dotnet_api_continua_em_8080(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.DOTNET, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "EXPOSE 8080" in df
+        base_values = next(f for f in bundle.files if f.path == "helm/base/values.yaml")
+        assert yaml.safe_load(base_values.content)["microservice-chart"]["service"]["port"] == 8080
+        ev = next(f for f in bundle.files if f.path == "helm/environments/prod/values.yaml")
+        for ingress in yaml.safe_load(ev.content)["microservice-chart"]["ingresses"]:
+            assert ingress["rules"][0]["paths"][0]["port"] == 8080
+        # a ENV do runtime .NET aponta para a mesma porta
+        app_env = yaml.safe_load(ev.content)["microservice-chart"]["env"]
+        assert app_env["ASPNETCORE_URLS"] == "http://+:8080"
 
 
 class TestRenderedContent:
@@ -771,21 +1141,28 @@ class TestLanguageDockerfile:
         [
             (Language.DOTNET, "dotnet/aspnet:"),
             (Language.NODE, "node:20-alpine"),
-            (Language.PYTHON, "python:3.12-alpine"),
             (Language.GO, "alpine:3.20"),
         ],
     )
     def test_api_usa_template_da_linguagem(
         self, language: Language, marker: str, base_ctx: dict[str, object]
     ) -> None:
+        # python tem modelo proprio (multi-stage, slim, porta 8000) - ver TestDockerfilePython
         bundle = build_bundle(app_type=AppType.API, language=language, **base_ctx)  # type: ignore[arg-type]
         df = next(f for f in bundle.files if f.path == "Dockerfile")
         assert marker in df.content
-        # API sempre expoe porta, independente da linguagem
         assert "EXPOSE 8080" in df.content
         # runtime-only: a imagem so roda o artefato (sem build stage)
         assert "COPY . ." in df.content
         assert "America/Sao_Paulo" in df.content
+
+    def test_api_python_usa_o_modelo_do_time(self, base_ctx: dict[str, object]) -> None:
+        bundle = build_bundle(
+            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+        )
+        df = next(f for f in bundle.files if f.path == "Dockerfile").content
+        assert "python:3.12-slim" in df
+        assert "EXPOSE 8000" in df
 
     @pytest.mark.parametrize("language", list(Language))
     def test_web_ignora_linguagem_e_usa_nginx(

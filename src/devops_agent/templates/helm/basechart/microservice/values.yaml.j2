@@ -6,7 +6,7 @@ microservice-chart:
     type: RollingUpdate
 
   service:
-    port: 8080
+    port: {{ container_port }}
 
   resources:
     limits:

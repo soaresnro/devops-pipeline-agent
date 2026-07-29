@@ -27,7 +27,76 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-07-28)
+## Estado do projeto (atualizado em 2026-07-29)
+
+**Stack python com contrato real (2026-07-29).** O agente passou a gerar a pipeline de aplicacoes
+Python a partir do `pipelines/template-aks-python.yml` (repo `AzurePipelinesTemplates`), em
+`templates/pipeline/python/azure-pipelines.yaml.j2`. `_pipeline_stack` agora mapeia
+`dotnet`/`python` -> stack proprio e o resto (node/go/web) segue no `_default`. Como o dotnet, o stack
+python referencia o repo de templates por BRANCH (`refs/heads/master`).
+
+O caminho do template virou **default do stack** (`executor._STACK_TEMPLATE_DEFAULTS`): python resolve
+para `pipelines/template-aks-python.yml` e dotnet para `pipelines/template-aks.yml` sem depender do
+`.env` (o `DEVOPS_TEMPLATE_<LINGUAGEM>` continua sobrepondo). Antes, sem o setting, os dois caiam no
+`DEVOPS_TEMPLATE_DEFAULT` generico (`pipelines/k8s-app.yaml`) e geravam uma pipeline que **nao compila**
+— o `extends.parameters` do contrato tem parametros que o template generico nao declara.
+
+Diferencas do contrato python que valem lembrar:
+- **apiId e UNICO** (nao ha `apiIdDev/Qa/Uat/Prod`). A fase `ASK_API_IDS` roda em modo `single`
+  (`sm.api_ids_single` / `validate_api_ids(single=True)`): uma lista por virgula e recusada com
+  `api_ids.single_only`. O valor segue guardado replicado nas quatro chaves de `SessionState.api_ids`
+  (o modelo nao mudou) e o template le o escalar `api_id` do contexto.
+- **`projectType` so aceita `api|worker`** -> cronjob python deploya como `worker` (o `kind: CronJob`
+  vem do nosso chart self-contained, nao do parametro).
+- **`imageTag` e variavel, nao so parametro.** O `azure-pipelines.yml` declara
+  `imageTag: $(Build.SourceBranchName)-$(Build.BuildId)` em `variables` e passa `imageTag: '$(imageTag)'`
+  no `extends`: a task Tokenizer substitui `__imageTag__` nos values do Helm por uma VARIAVEL de mesmo
+  nome, entao so o parametro nao resolveria o token.
+- **`runTests: false` emitido de proposito.** O default do template e `runTests=true` +
+  `testPath='tests'`, que quebraria o primeiro run em repo sem pasta de testes; `testPath`,
+  `testRequirementsFile` e `minimumCoverage` saem preenchidos para o time so trocar o flag.
+- **`sourceFolder: 'app'`** e a convencao do time (o default do template e `.`). Apps com codigo em
+  `src/` ou na raiz ajustam no arquivo — por isso o comentario logo acima do parametro.
+- **APIM e opcional no stack python.** Fase nova `ASK_USES_APIM` (`handle_uses_apim` /
+  `validate_yes_no`), roteada por `state_machine.apim_is_optional` (hoje so python). Respondendo
+  `nao`, o fluxo pula path e apiId e vai direto ao host do ingress (que existe independente do
+  APIM), e a pipeline sai com `enableApim: false` sem `pathApiManagementService`/`apiId`. O dotnet
+  segue sem pergunta: o `template-aks` sempre habilita APIM para api. `SessionState.uses_apim`
+  (`bool | None`); `None` = nao perguntado, e o contexto resolve para o contrato do stack.
+
+**Porta da api e por LINGUAGEM (2026-07-29).** `scaffold.container_port` + `_API_PORT_BY_LANGUAGE`:
+python usa **8000** (uvicorn, modelo do time) e os demais seguem 8080. A porta atravessa tres arquivos —
+Dockerfile (`EXPOSE` e o `--port` do CMD), `helm/base/values.yaml` (`service.port`) e os dois ingresses
+de `helm/environments/<env>/values.yaml` — que antes fixavam `8080` literal e agora saem do mesmo
+`container_port` do contexto. Divergir significa Service apontando para porta onde nada escuta.
+Confirmado com `helm template` real: python renderiza 8000 em service/targetPort/ingress e dotnet 8080.
+
+**Dockerfile python segue o modelo proprio do time (2026-07-29), nao a regra runtime-only.** Como a
+pipeline builda do codigo-fonte (`downloadArtifact: false`), o Dockerfile e multi-stage **Debian slim**
+(nao Alpine): `build-essential` so no builder, `pip install --user` -> `/root/.local` copiado com
+`--chown` para `/home/appuser/.local`, usuario nao-root `appuser`, `mkdir -p /app/data /app/temp
+/app/logs`, e as ENVs de imagem (`PATH`, `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`,
+`PYTHONPATH=/app`) no proprio Dockerfile — descrevem a imagem, nao o ambiente. So `TZ` vai para o values
+(`scaffold.python_runtime_env`). Sem HEALTHCHECK e sem tzdata/symlink (o modelo do time nao tem).
+`libgl1`/`libglib2.0-0` do modelo ficaram **de fora** por decisao do usuario: sao deps de OpenCV/Pillow,
+especificas da app. Com poetry, o lock e exportado para requirements dentro do builder, mantendo o mesmo
+`pip install --user`. O `CMD` sai em exec form e `validate_python_entrypoint` recusa sintaxe de shell.
+
+Perguntas novas no fluxo (escolha do usuario: minimo): `ASK_PYTHON_VERSION` (default 3.12),
+`ASK_PYTHON_PACKAGE_MANAGER` (pip|poetry, default pip) e `ASK_PYTHON_ENTRYPOINT` (default por tipo:
+api = `uvicorn main:app --host 0.0.0.0 --port 8000`, demais = `python main.py`), mais a de APIM.
+Ordem para api python: applicationName -> usa APIM? -> [apim path -> apiId] -> host do ingress. Lint, feed
+privado, cobertura e `generatePackage` ficaram nos defaults do template. O roteamento pos-linguagem
+virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handle_language` quanto pelo
+`detect_language_step`.
+
+De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
+(`application_env` agora consulta a linguagem, nao so o tipo).
+
+**408 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
+(python/dotnet x api/worker/cronjob x dev/prod).
+
+## Estado anterior (atualizado em 2026-07-28)
 
 **Correcao: base chart e microservice-chart 0.4.5, nao 0.5.0 (2026-07-28).** A 0.5.0 vendorizada mais
 cedo veio do working tree de `D:\repositorios\AksHelmBaseCharts`, que **nao** e a versao que o time

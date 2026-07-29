@@ -7,6 +7,7 @@ Ele apenas decide *quando* chamar render/dry_run e com quais parametros tipados.
 from __future__ import annotations
 
 import base64
+import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -131,6 +132,10 @@ DEFAULT_TEMPLATES_BRANCH = "master"
 # Versao default do .NET quando o usuario nao informa.
 DEFAULT_DOTNET_VERSION = "8.0.x"
 
+# Defaults do stack python (contrato template-aks-python).
+DEFAULT_PYTHON_VERSION = "3.12"
+DEFAULT_PYTHON_PACKAGE_MANAGER = "pip"
+
 # Ambientes default para os quais gerar override de values.
 DEFAULT_ENVIRONMENTS = ("dev", "qa", "uat", "prod")
 
@@ -211,6 +216,43 @@ def aspnetcore_environment(env: str) -> str:
     return _ASPNETCORE_ENVIRONMENT.get(env, "Development")
 
 
+# Porta HTTP do container por linguagem, para api. O modelo python do time sobe o
+# uvicorn em 8000; os demais stacks seguem 8080 (ASPNETCORE_URLS no dotnet). A porta
+# atravessa Dockerfile (EXPOSE/CMD), service e os ingresses - tem que casar nos tres.
+_API_PORT_BY_LANGUAGE: dict[Language, int] = {Language.PYTHON: 8000}
+
+
+def container_port(app_type: AppType, language: Language) -> int:
+    default = _TYPE_DEFAULTS[app_type].container_port
+    if app_type != AppType.API:
+        return default
+    return _API_PORT_BY_LANGUAGE.get(language, default)
+
+
+def default_python_entrypoint(app_type: AppType) -> str:
+    """Comando de entrada default da imagem Python (vira o CMD em exec form).
+
+    Palpite razoavel por tipo - o usuario confirma/ajusta na pergunta do fluxo, ja
+    que nao ha como inferir o modulo real da aplicacao sem clonar o repo.
+    """
+    if app_type == AppType.API:
+        porta = container_port(AppType.API, Language.PYTHON)
+        return f"uvicorn main:app --host 0.0.0.0 --port {porta}"
+    return "python main.py"
+
+
+def python_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
+    """Variaveis de runtime Python emitidas no override por ambiente.
+
+    Só o que descreve o AMBIENTE. As que descrevem a imagem (`PYTHONUNBUFFERED`,
+    `PYTHONDONTWRITEBYTECODE`, `PYTHONPATH`) ficam no Dockerfile, como no modelo do
+    time. `web` fica de fora (SPA estatica em nginx).
+    """
+    if language != Language.PYTHON or app_type == AppType.WEB:
+        return {}
+    return {"TZ": "America/Sao_Paulo"}
+
+
 def dotnet_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
     """Variaveis de runtime .NET que antes eram fixadas no Dockerfile.
 
@@ -266,12 +308,15 @@ def application_env(
     service tagging do Datadog (so uat/prod).
     """
     values: dict[str, str] = {}
-    if app_type in (AppType.API, AppType.WEB):
+    # Defaults do runtime .NET. `web` entra mesmo em outra linguagem: e sempre uma SPA
+    # servida por nginx e o override e o mesmo do modelo do time.
+    if app_type == AppType.WEB or (app_type == AppType.API and language == Language.DOTNET):
         values["ASPNETCORE_ENVIRONMENT"] = aspnetcore_environment(env)
         values["WEBSITE_TIME_ZONE"] = "America/Sao_Paulo"
-    if app_type == AppType.API:
+    if app_type == AppType.API and language == Language.DOTNET:
         values["SwaggerEnabled"] = "true"
     values.update(dotnet_runtime_env(app_type, language))
+    values.update(python_runtime_env(app_type, language))
     tags = datadog_tags(namespace, application_name, env)
     if tags:
         values["DD_ENV"] = tags["env"]
@@ -317,21 +362,32 @@ def _build_template_context(
     pipeline_template_path: str,
     dotnet_version: str,
     dotnet_entrypoint: str,
+    python_version: str,
+    python_package_manager: str,
+    python_entrypoint: str,
     application_name: str,
+    uses_apim: bool | None,
     apim_path: str,
     api_ids: dict[str, str],
     ingress_host: str,
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
+    entrypoint_argv = (python_entrypoint or default_python_entrypoint(app_type)).split()
     return {
         "app_name": app_name,
         # applicationName/pathApiManagementService/apiIds/host do ingress: perguntados no
         # fluxo, com defaults derivados quando aplicavel (ver executor/state_machine).
         # Os apiIds (template-aks) sao obrigatorios para api, sem default.
         "application_name": application_name,
+        # None = nao perguntado: vale o contrato do stack (APIM habilitado para api).
+        "uses_apim": (app_type == AppType.API) if uses_apim is None else uses_apim,
         "apim_path": apim_path,
         # Normalizado com as quatro chaves para o template nao depender de `default`.
         "api_ids": {env: api_ids.get(env, "") for env in APIM_ENVIRONMENTS},
+        # apiId escalar: o template-aks-python declara um unico parametro `apiId`.
+        # A pergunta do fluxo restringe o stack python a um valor unico (single=True),
+        # entao as quatro chaves de api_ids sao iguais e qualquer uma serve.
+        "api_id": api_ids.get(APIM_ENVIRONMENTS[0], ""),
         "ingress_host": ingress_host,
         "app_type": app_type.value,
         "language": language.value,
@@ -343,13 +399,21 @@ def _build_template_context(
         "dotnet_image_tag": dotnet_version.split(".")[0] + ".0",
         # assembly de entrada; default app_name.dll quando nao informado.
         "dotnet_entrypoint": dotnet_entrypoint or f"{app_name}.dll",
+        "python_version": python_version,
+        "python_package_manager": python_package_manager,
+        # projectType do template-aks-python so aceita api|worker; cronjob deploya como worker
+        # (o kind CronJob vem do nosso chart self-contained, nao do parametro).
+        "python_project_type": "api" if app_type == AppType.API else "worker",
+        # CMD em exec form: json.dumps evita depender do filtro `tojson` do Jinja, que
+        # escapa <, > e & e mangleria argumentos.
+        "python_entrypoint_cmd": json.dumps(entrypoint_argv),
         "namespace": namespace,
         "branch": branch,
         "acr_name": acr_name,
         "devops_templates_repo_name": devops_templates_repo_name,
         "devops_templates_tag": devops_templates_tag,
         "devops_templates_branch": devops_templates_branch,
-        "container_port": defaults.container_port,
+        "container_port": container_port(app_type, language),
         "service_port": defaults.service_port,
         "health_path": defaults.health_path,
         "replica_count": defaults.replica_count,
@@ -373,10 +437,13 @@ def render_dockerfile(
 
 
 def _pipeline_stack(app_type: AppType, language: Language) -> str:
-    """Stack que define o template de pipeline local. So dotnet tem contrato real;
-    os demais (e web) usam o template generico _default ate termos os reais."""
-    if app_type != AppType.WEB and language == Language.DOTNET:
-        return "dotnet"
+    """Stack que define o template de pipeline local (cada template do time tem contrato
+    proprio). dotnet e python tem contrato real; node/go e web (sempre SPA em nginx)
+    usam o generico _default ate termos os reais."""
+    if app_type == AppType.WEB:
+        return "_default"
+    if language in (Language.DOTNET, Language.PYTHON):
+        return language.value
     return "_default"
 
 
@@ -534,7 +601,11 @@ def build_bundle(
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
+    python_version: str = DEFAULT_PYTHON_VERSION,
+    python_package_manager: str = DEFAULT_PYTHON_PACKAGE_MANAGER,
+    python_entrypoint: str = "",
     application_name: str = "",
+    uses_apim: bool | None = None,
     apim_path: str = "",
     api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
@@ -562,7 +633,11 @@ def build_bundle(
         pipeline_template_path=pipeline_template_path,
         dotnet_version=dotnet_version,
         dotnet_entrypoint=dotnet_entrypoint,
+        python_version=python_version,
+        python_package_manager=python_package_manager,
+        python_entrypoint=python_entrypoint,
         application_name=resolved_app,
+        uses_apim=uses_apim,
         apim_path=resolved_path,
         api_ids=api_ids or {},
         ingress_host=resolved_host,
@@ -596,7 +671,11 @@ def dry_run(
     pipeline_template_path: str = DEFAULT_PIPELINE_TEMPLATE_PATH,
     dotnet_version: str = DEFAULT_DOTNET_VERSION,
     dotnet_entrypoint: str = "",
+    python_version: str = DEFAULT_PYTHON_VERSION,
+    python_package_manager: str = DEFAULT_PYTHON_PACKAGE_MANAGER,
+    python_entrypoint: str = "",
     application_name: str = "",
+    uses_apim: bool | None = None,
     apim_path: str = "",
     api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
@@ -620,7 +699,11 @@ def dry_run(
             pipeline_template_path=pipeline_template_path,
             dotnet_version=dotnet_version,
             dotnet_entrypoint=dotnet_entrypoint,
+            python_version=python_version,
+            python_package_manager=python_package_manager,
+            python_entrypoint=python_entrypoint,
             application_name=application_name,
+            uses_apim=uses_apim,
             apim_path=apim_path,
             api_ids=api_ids or {},
             ingress_host=ingress_host,

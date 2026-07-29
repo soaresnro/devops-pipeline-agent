@@ -1,0 +1,91 @@
+# Pipeline gerada automaticamente pelo devops-pipeline-agent
+# App: {{ app_name }} | Stack: Python {{ python_version }} | Namespace: {{ namespace }}
+# NAO edite manualmente - este arquivo apenas referencia o template centralizado.
+
+name: $(Build.SourceBranchName).$(Build.BuildId)
+
+trigger:
+  branches:
+    include:
+      - master
+      - develop
+      - release/*
+      - hotfix/*
+      - feature/*
+
+# Os manifests do Helm vivem neste proprio repositorio (helm/base +
+# helm/environments); a pipeline os le do checkout self, sem resource dedicado.
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: {{ devops_templates_repo_name }}
+      ref: refs/heads/{{ devops_templates_branch }}
+
+pool:
+  name: agt_pool_linux_vmss
+
+variables:
+  - group: Sonarqube
+  - group: DevOpsShared
+  - group: ServiceConnections
+  - group: k8s-dev
+  - group: k8s-qa
+  - group: k8s-uat
+  - group: k8s-prod
+
+  - name: SQ_PROJECT_KEY
+    value: $(Build.Repository.Name)
+
+  # Tag da imagem. Precisa existir como VARIAVEL (nao so como parametro) porque a task
+  # Tokenizer substitui o token __imageTag__ nos values do Helm por uma variavel de mesmo nome.
+  - name: imageTag
+    value: $(Build.SourceBranchName)-$(Build.BuildId)
+
+extends:
+  template: {{ pipeline_template_path }}@templates
+  parameters:
+    # ---- Identificacao da aplicacao ----
+    applicationName: '{{ application_name }}'
+    namespace: '{{ namespace }}'
+
+    # ---- Stack Python ----
+    ApplicationType: 'python'
+    projectType: '{{ python_project_type }}'
+    pythonVersion: '{{ python_version }}'
+    packageManager: '{{ python_package_manager }}'
+{%- if python_package_manager == 'pip' %}
+    requirementsFile: 'requirements.txt'
+{%- endif %}
+    # Pasta do pacote da aplicacao (lint, compileall e cobertura). Ajuste se o codigo
+    # nao estiver em 'app' (ex.: 'src' ou '.' para a raiz do repositorio).
+    sourceFolder: 'app'
+
+    # ---- Qualidade ----
+    runLint: true
+    lintTool: 'ruff'
+    # Para rodar os testes, altere para true e informe o path dos tests e arquivo de requirements
+    runTests: false
+    testPath: 'tests'
+    testRequirementsFile: 'requirements-dev.txt'
+    minimumCoverage: 80
+
+    # ---- Docker / Security ----
+    imageName: '$(Build.Repository.Name)'
+    imageTag: '$(imageTag)'
+    dockerfilePath: 'Dockerfile'
+    # false = Trivy apenas reporta; mude para true para bloquear em HIGH/CRITICAL
+    failOnVulnerabilities: false
+
+    # ---- Deploy ----
+    deploymentStrategy: 'rolling'
+    # Sem Key Vault configurado; preencha quando necessario.
+    keyvault: ''
+{%- if uses_apim %}
+    enableApim: true
+    pathApiManagementService: '{{ apim_path }}'
+    # O template python usa um unico apiId para todos os ambientes.
+    apiId: '{{ api_id }}'
+{%- else %}
+    enableApim: false
+{%- endif %}

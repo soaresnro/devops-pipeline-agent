@@ -23,7 +23,11 @@ class Phase(StrEnum):
     ASK_LANGUAGE = "ask_language"
     ASK_DOTNET_VERSION = "ask_dotnet_version"
     ASK_DOTNET_ENTRYPOINT = "ask_dotnet_entrypoint"
+    ASK_PYTHON_VERSION = "ask_python_version"
+    ASK_PYTHON_PACKAGE_MANAGER = "ask_python_package_manager"
+    ASK_PYTHON_ENTRYPOINT = "ask_python_entrypoint"
     ASK_APPLICATION_NAME = "ask_application_name"
+    ASK_USES_APIM = "ask_uses_apim"
     ASK_APIM_PATH = "ask_apim_path"
     ASK_API_IDS = "ask_api_ids"
     ASK_INGRESS_HOST = "ask_ingress_host"
@@ -64,7 +68,12 @@ class SessionState(BaseModel):
     schedule: str | None = None  # cron do CronJob; None usa o default do scaffold
     dotnet_version: str | None = None  # versao .NET; None usa o default do scaffold
     dotnet_entrypoint: str | None = None  # assembly de entrada; None usa app_name.dll
+    python_version: str | None = None  # versao Python; None usa o default do scaffold
+    python_package_manager: str | None = None  # pip|poetry; None usa o default do scaffold
+    python_entrypoint: str | None = None  # comando do CMD; None deriva do tipo de app
     application_name: str | None = None  # applicationName da pipeline; None usa app_name
+    # Expor a api no APIM. None = nao perguntado (stacks cujo contrato sempre habilita).
+    uses_apim: bool | None = None
     apim_path: str | None = None  # pathApiManagementService; None deriva de application_name
     # apiIds do APIM por ambiente (template-aks: apiIdDev/Qa/Uat/Prod); obrigatorio para
     # api, sem default. Chaves em validation.APIM_ENVIRONMENTS.

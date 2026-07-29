@@ -15,6 +15,9 @@ from devops_agent.tools.validation import (
     validate_dotnet_version,
     validate_k8s_namespace,
     validate_language,
+    validate_python_entrypoint,
+    validate_python_package_manager,
+    validate_python_version,
     validate_repo_url,
 )
 
@@ -277,9 +280,128 @@ class TestValidateBranchName:
         assert not r.ok
 
 
+class TestValidatePythonVersion:
+    @pytest.mark.parametrize(
+        ("entrada", "esperado"),
+        [
+            ("3.12", "3.12"),
+            ("3.9", "3.9"),
+            ("3.13", "3.13"),
+            ("3.12.4", "3.12.4"),
+            ("  3.11  ", "3.11"),
+            ("python3.12", "3.12"),
+            ("v3.12", "3.12"),
+        ],
+    )
+    def test_versoes_validas(self, entrada: str, esperado: str) -> None:
+        r = validate_python_version(entrada)
+        assert r.ok, r.error
+        assert r.data == esperado
+
+    @pytest.mark.parametrize("entrada", ["", "   "])
+    def test_vazio_usa_default(self, entrada: str) -> None:
+        r = validate_python_version(entrada)
+        assert r.ok
+        assert r.data == "3.12"
+
+    @pytest.mark.parametrize("entrada", ["2.7", "4.0", "3", "3.x", "latest", "3.12.4.1"])
+    def test_rejeita_invalidas(self, entrada: str) -> None:
+        r = validate_python_version(entrada)
+        assert not r.ok
+        assert r.error_code == "python_version.invalid"
+
+
+class TestValidatePythonPackageManager:
+    @pytest.mark.parametrize(
+        ("entrada", "esperado"),
+        [
+            ("pip", "pip"),
+            ("PIP", "pip"),
+            ("requirements.txt", "pip"),
+            ("poetry", "poetry"),
+            ("pyproject.toml", "poetry"),
+        ],
+    )
+    def test_aceita_aliases(self, entrada: str, esperado: str) -> None:
+        r = validate_python_package_manager(entrada)
+        assert r.ok, r.error
+        assert r.data == esperado
+
+    def test_vazio_usa_pip(self) -> None:
+        r = validate_python_package_manager("  ")
+        assert r.ok
+        assert r.data == "pip"
+
+    @pytest.mark.parametrize("entrada", ["pipenv", "conda", "uv"])
+    def test_rejeita_fora_do_contrato_do_template(self, entrada: str) -> None:
+        # o template so declara pip|poetry; outro valor quebra a compilacao
+        r = validate_python_package_manager(entrada)
+        assert not r.ok
+        assert r.error_code == "python_package_manager.invalid"
+
+
+class TestValidatePythonEntrypoint:
+    @pytest.mark.parametrize(
+        "entrada",
+        [
+            "uvicorn main:app --host 0.0.0.0 --port 8080",
+            "python -m app.worker",
+            "gunicorn app.main:app --bind 0.0.0.0:8080 --workers 4",
+            "celery -A app.tasks worker --loglevel=info",
+        ],
+    )
+    def test_comandos_validos(self, entrada: str) -> None:
+        r = validate_python_entrypoint(entrada)
+        assert r.ok, r.error
+        assert r.data == entrada
+
+    def test_normaliza_espacos(self) -> None:
+        r = validate_python_entrypoint("  python   -m   app  ")
+        assert r.ok
+        assert r.data == "python -m app"
+
+    @pytest.mark.parametrize("entrada", ["", "   "])
+    def test_rejeita_vazio(self, entrada: str) -> None:
+        r = validate_python_entrypoint(entrada)
+        assert not r.ok
+        assert r.error_code == "python_entrypoint.empty"
+
+    @pytest.mark.parametrize(
+        "entrada",
+        [
+            "python app.py && echo ok",
+            "sh -c 'python app.py'",
+            "python app.py > /tmp/log",
+            "python app.py $PORT",
+        ],
+    )
+    def test_rejeita_sintaxe_de_shell(self, entrada: str) -> None:
+        # o CMD e gerado em exec form: nao ha shell para interpretar esses operadores
+        r = validate_python_entrypoint(entrada)
+        assert not r.ok
+        assert r.error_code == "python_entrypoint.shell_syntax"
+
+    def test_rejeita_caractere_invalido(self) -> None:
+        r = validate_python_entrypoint("python app.py --nome joão")
+        assert not r.ok
+        assert r.error_code == "python_entrypoint.invalid"
+
+
 class TestValidateApiIds:
     """Aceita duas formas: um valor unico (vale para os quatro ambientes) ou os quatro
     separados por virgula na ordem dev,qa,uat,prod."""
+
+    def test_single_replica_o_valor_unico(self) -> None:
+        # stack python: o template declara um unico apiId
+        r = validate_api_ids("api-utils", single=True)
+        assert r.ok, r.error
+        assert r.data == dict.fromkeys(APIM_ENVIRONMENTS, "api-utils")
+
+    @pytest.mark.parametrize("valor", ["a,b", "a-dev,a-qa,a-uat,a-prod"])
+    def test_single_rejeita_lista(self, valor: str) -> None:
+        r = validate_api_ids(valor, single=True)
+        assert not r.ok
+        assert r.error_code == "api_ids.single_only"
 
     def test_ordem_das_chaves_e_o_contrato_da_pipeline(self) -> None:
         assert APIM_ENVIRONMENTS == ("dev", "qa", "uat", "prod")
