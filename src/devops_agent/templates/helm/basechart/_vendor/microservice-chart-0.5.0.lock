@@ -1,6 +1,0 @@
-dependencies:
-- name: microservice-chart
-  repository: file://../../../../AksHelmBaseCharts/base-charts/microservice-chart
-  version: 0.5.0
-digest: sha256:71d9613ec2ab96fa771d4ee5131b6bc680ee952a2896e3f6b34326ea66f4c964
-generated: "2026-07-28T15:22:10.6061371-03:00"
