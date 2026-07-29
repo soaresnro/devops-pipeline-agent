@@ -7,6 +7,7 @@ name: $(Build.SourceBranchName).$(Build.BuildId)
 trigger:
   branches:
     include:
+      - master
       - develop
       - release/*
       - hotfix/*
@@ -25,6 +26,7 @@ pool:
   name: agt_pool_linux_vmss
 
 variables:
+  - group: Sonarqube
   - group: DevOpsShared
   - group: ServiceConnections
   - group: k8s-dev
@@ -32,39 +34,58 @@ variables:
   - group: k8s-uat
   - group: k8s-prod
 
+  - name: SQ_PROJECT_KEY
+    value: $(Build.Repository.Name)
+
+  # Tag da imagem. Precisa existir como VARIAVEL (nao so como parametro) porque a task
+  # Tokenizer substitui o token __imageTag__ nos values do Helm por uma variavel de mesmo nome.
+  - name: imageTag
+    value: $(Build.SourceBranchName)-$(Build.BuildId)
+
 extends:
   template: {{ pipeline_template_path }}@templates
   parameters:
-    # Habilitar integracao com o APIM (apenas api)
-    enableApim: {{ 'true' if app_type == 'api' else 'false' }}
-
-    # Defina valores da aplicacao
+    # ---- Identificacao da aplicacao ----
     applicationName: '{{ application_name }}'
     namespace: '{{ namespace }}'
 
-    # Estrategia de deploy
-    deploymentStrategy: 'rolling'
-{%- if app_type == 'api' %}
-
-    pathApiManagementService: '{{ apim_path }}'
-    # O template python usa um unico apiId para todos os ambientes.
-    apiId: '{{ api_id }}'
-{%- endif %}
-
-    # Tipo e stack
+    # ---- Stack Python ----
     ApplicationType: 'python'
     projectType: '{{ python_project_type }}'
     pythonVersion: '{{ python_version }}'
     packageManager: '{{ python_package_manager }}'
+{%- if python_package_manager == 'pip' %}
+    requirementsFile: 'requirements.txt'
+{%- endif %}
+    # Pasta do pacote da aplicacao (lint, compileall e cobertura). Ajuste para 'app'/'src'
+    # se o codigo nao estiver na raiz.
+    sourceFolder: '.'
 
-    # Quality gates: o scaffold entrega a pipeline rodando verde no primeiro push.
-    # Ligue runTests quando o repo tiver testes (ajuste testPath/minimumCoverage se
-    # os testes nao estiverem em ./tests):
-    #   runTests: true
-    #   testPath: 'tests'
-    #   minimumCoverage: 80
+    # ---- Qualidade ----
+    runLint: true
+    lintTool: 'ruff'
+    # Para rodar os testes, altere para true e informe o path dos tests e arquivo de requirements
     runTests: false
+    testPath: 'tests'
+    testRequirementsFile: 'requirements-dev.txt'
+    minimumCoverage: 80
 
-    # Variaveis para Docker
+    # ---- Docker / Security ----
     imageName: '$(Build.Repository.Name)'
-    imageTag: '$(Build.SourceBranchName)-$(Build.BuildId)'
+    imageTag: '$(imageTag)'
+    dockerfilePath: 'Dockerfile'
+    # false = Trivy apenas reporta; mude para true para bloquear em HIGH/CRITICAL
+    failOnVulnerabilities: false
+
+    # ---- Deploy ----
+    deploymentStrategy: 'rolling'
+    # Sem Key Vault configurado; preencha quando necessario.
+    keyvault: ''
+{%- if app_type == 'api' %}
+    enableApim: true
+    pathApiManagementService: '{{ apim_path }}'
+    # O template python usa um unico apiId para todos os ambientes.
+    apiId: '{{ api_id }}'
+{%- else %}
+    enableApim: false
+{%- endif %}

@@ -216,6 +216,19 @@ def aspnetcore_environment(env: str) -> str:
     return _ASPNETCORE_ENVIRONMENT.get(env, "Development")
 
 
+# Porta HTTP do container por linguagem, para api. O modelo python do time sobe o
+# uvicorn em 8000; os demais stacks seguem 8080 (ASPNETCORE_URLS no dotnet). A porta
+# atravessa Dockerfile (EXPOSE/CMD), service e os ingresses - tem que casar nos tres.
+_API_PORT_BY_LANGUAGE: dict[Language, int] = {Language.PYTHON: 8000}
+
+
+def container_port(app_type: AppType, language: Language) -> int:
+    default = _TYPE_DEFAULTS[app_type].container_port
+    if app_type != AppType.API:
+        return default
+    return _API_PORT_BY_LANGUAGE.get(language, default)
+
+
 def default_python_entrypoint(app_type: AppType) -> str:
     """Comando de entrada default da imagem Python (vira o CMD em exec form).
 
@@ -223,24 +236,21 @@ def default_python_entrypoint(app_type: AppType) -> str:
     que nao ha como inferir o modulo real da aplicacao sem clonar o repo.
     """
     if app_type == AppType.API:
-        return "uvicorn main:app --host 0.0.0.0 --port 8080"
+        porta = container_port(AppType.API, Language.PYTHON)
+        return f"uvicorn main:app --host 0.0.0.0 --port {porta}"
     return "python main.py"
 
 
 def python_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
-    """Variaveis de runtime Python que ficariam fixadas no Dockerfile.
+    """Variaveis de runtime Python emitidas no override por ambiente.
 
-    Mesma decisao do `dotnet_runtime_env`: vivem no override por ambiente para serem
-    ajustaveis sem rebuild da imagem. `web` fica de fora (SPA estatica em nginx).
+    Só o que descreve o AMBIENTE. As que descrevem a imagem (`PYTHONUNBUFFERED`,
+    `PYTHONDONTWRITEBYTECODE`, `PYTHONPATH`) ficam no Dockerfile, como no modelo do
+    time. `web` fica de fora (SPA estatica em nginx).
     """
     if language != Language.PYTHON or app_type == AppType.WEB:
         return {}
-    return {
-        "TZ": "America/Sao_Paulo",
-        # Logs sem buffer: sem isso o stdout do container so aparece ao encher o buffer.
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
+    return {"TZ": "America/Sao_Paulo"}
 
 
 def dotnet_runtime_env(app_type: AppType, language: Language) -> dict[str, str]:
@@ -400,7 +410,7 @@ def _build_template_context(
         "devops_templates_repo_name": devops_templates_repo_name,
         "devops_templates_tag": devops_templates_tag,
         "devops_templates_branch": devops_templates_branch,
-        "container_port": defaults.container_port,
+        "container_port": container_port(app_type, language),
         "service_port": defaults.service_port,
         "health_path": defaults.health_path,
         "replica_count": defaults.replica_count,

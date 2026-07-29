@@ -209,7 +209,7 @@ class TestHandlePythonEntrypoint:
     @pytest.mark.parametrize(
         ("app_type", "esperado"),
         [
-            (AppType.API, "uvicorn main:app --host 0.0.0.0 --port 8080"),
+            (AppType.API, "uvicorn main:app --host 0.0.0.0 --port 8000"),
             (AppType.WORKER, "python main.py"),
         ],
     )

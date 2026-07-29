@@ -182,8 +182,16 @@ extends:
     packageManager: pip                              # perguntado: pip|poetry
     runTests: false                                  # scaffold entrega o gate desligado
     imageName: $(Build.Repository.Name)
-    imageTag: $(Build.SourceBranchName)-$(Build.BuildId)
+    imageTag: $(imageTag)                            # variavel homonima: o Tokenizer troca __imageTag__
 ```
+
+O `trigger` do stack python inclui `master` e o cabecalho declara `imageTag` tambem em `variables`
+(`$(Build.SourceBranchName)-$(Build.BuildId)`), porque a task Tokenizer substitui o token `__imageTag__`
+dos values do Helm por uma **variavel** de mesmo nome — o parametro sozinho nao resolveria.
+
+**Porta da api por linguagem:** python sobe uvicorn em **8000** e os demais stacks usam 8080
+(`scaffold.container_port`). O mesmo valor alimenta `EXPOSE`/CMD do Dockerfile, `service.port` do
+`helm/base/values.yaml` e os dois ingresses do override por ambiente.
 
 O Helm vive no **repositorio da propria aplicacao**: o chart vai para `helm/base/` e os overrides
 por ambiente para `helm/environments/<env>/values.yaml` (o template do time le os manifests do checkout

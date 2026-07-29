@@ -1,43 +1,63 @@
-# syntax=docker/dockerfile:1.7
 # Dockerfile Python gerado para {{ app_name }} ({{ app_type }})
 # Diferente do stack .NET, a pipeline python NAO publica artefato antes do build
 # (downloadArtifact: false, buildContext = $(Build.SourcesDirectory)): a imagem e
 # construida a partir do codigo-fonte e o install das dependencias acontece aqui.
 
-FROM python:{{ python_version }}-alpine AS builder
+# ------------------------------------------------------------------------------
+# Stage 1: Build stage
+# ------------------------------------------------------------------------------
+FROM python:{{ python_version }}-slim AS builder
 
 WORKDIR /app
 
-# Toolchain de compilacao para pacotes sem wheel para musl (Alpine). Fica so no
-# estagio de build; acrescente aqui os -dev que suas libs exigirem (ex.: postgresql-dev).
-RUN apk add --no-cache build-base libffi-dev openssl-dev
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 {% if python_package_manager == 'poetry' %}
+# Copy dependency files and install dependencies
 COPY pyproject.toml poetry.lock* ./
-# Exporta o lock para requirements e instala num prefixo isolado, copiado no runtime.
 RUN pip install --no-cache-dir poetry poetry-plugin-export \
- && poetry export --without-hashes --format=requirements.txt --output=/tmp/requirements.txt \
- && pip install --no-cache-dir --prefix=/install -r /tmp/requirements.txt
+    && poetry export --without-hashes --format=requirements.txt --output=requirements.txt \
+    && pip install --no-cache-dir --user -r requirements.txt
 {% else %}
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
 {% endif %}
-
-FROM python:{{ python_version }}-alpine AS runtime
+# ------------------------------------------------------------------------------
+# Stage 2: Production stage
+# ------------------------------------------------------------------------------
+FROM python:{{ python_version }}-slim
 
 WORKDIR /app
-{% if app_type == 'api' %}
-EXPOSE 8080
-{% endif %}
-RUN apk add --no-cache tzdata ca-certificates wget && update-ca-certificates
 
-# Timezone default da imagem (a variavel TZ vive no values de cada ambiente).
-RUN ln -snf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime \
- && echo America/Sao_Paulo > /etc/timezone
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
 
-COPY --from=builder /install /usr/local
-COPY . .
+# Copy Python packages from builder directly with correct ownership
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
+
+# Make sure scripts in .local are usable
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+# Set Python environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Create required directories
+RUN mkdir -p /app/data /app/temp /app/logs && \
+    chown -R appuser:appuser /app
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Switch to non-root user
+USER appuser
 {% if app_type == 'api' %}
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:8080/health || exit 1
+# Expose port
+EXPOSE {{ container_port }}
 {% endif %}
+# Default command
 CMD {{ python_entrypoint_cmd }}

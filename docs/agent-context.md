@@ -48,31 +48,47 @@ Diferencas do contrato python que valem lembrar:
   (o modelo nao mudou) e o template le o escalar `api_id` do contexto.
 - **`projectType` so aceita `api|worker`** -> cronjob python deploya como `worker` (o `kind: CronJob`
   vem do nosso chart self-contained, nao do parametro).
-- **Sem variable group `Sonarqube`** (o CI python e lint/pytest/trivy).
+- **`imageTag` e variavel, nao so parametro.** O `azure-pipelines.yml` declara
+  `imageTag: $(Build.SourceBranchName)-$(Build.BuildId)` em `variables` e passa `imageTag: '$(imageTag)'`
+  no `extends`: a task Tokenizer substitui `__imageTag__` nos values do Helm por uma VARIAVEL de mesmo
+  nome, entao so o parametro nao resolveria o token.
 - **`runTests: false` emitido de proposito.** O default do template e `runTests=true` +
-  `testPath='tests'`, que quebraria o primeiro run em repo sem pasta de testes; o arquivo gerado traz
-  comentado como ligar (decisao do usuario: pipeline verde no primeiro push).
-- **O Dockerfile python builda do CODIGO-FONTE.** A pipeline usa `downloadArtifact: false` +
-  `buildContext: $(Build.SourcesDirectory)`, entao o antigo Dockerfile runtime-only (COPY de artefato)
-  estava errado para esse stack. Agora e multi-stage: estagio `builder` com `build-base`/`libffi-dev`/
-  `openssl-dev` instalando em `--prefix=/install` (pip a partir de `requirements.txt`, ou poetry
-  exportando o lock), copiado para o runtime. O `CMD` sai em exec form (`python_entrypoint_cmd`,
-  json.dumps) e `validate_python_entrypoint` recusa sintaxe de shell (nao ha shell no exec form).
-- Envs de runtime do python vao para os values por ambiente (`scaffold.python_runtime_env`: `TZ`,
-  `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE`) — o Dockerfile python nao tem nenhuma `ENV`.
-  De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
-  (`application_env` agora consulta a linguagem, nao so o tipo).
+  `testPath='tests'`, que quebraria o primeiro run em repo sem pasta de testes; `testPath`,
+  `testRequirementsFile` e `minimumCoverage` saem preenchidos para o time so trocar o flag.
+- **`sourceFolder: '.'`** e conservador (igual ao default do template). Apps com codigo em `app/` ou
+  `src/` ajustam no arquivo — por isso o comentario logo acima do parametro.
+
+**Porta da api e por LINGUAGEM (2026-07-29).** `scaffold.container_port` + `_API_PORT_BY_LANGUAGE`:
+python usa **8000** (uvicorn, modelo do time) e os demais seguem 8080. A porta atravessa tres arquivos —
+Dockerfile (`EXPOSE` e o `--port` do CMD), `helm/base/values.yaml` (`service.port`) e os dois ingresses
+de `helm/environments/<env>/values.yaml` — que antes fixavam `8080` literal e agora saem do mesmo
+`container_port` do contexto. Divergir significa Service apontando para porta onde nada escuta.
+Confirmado com `helm template` real: python renderiza 8000 em service/targetPort/ingress e dotnet 8080.
+
+**Dockerfile python segue o modelo proprio do time (2026-07-29), nao a regra runtime-only.** Como a
+pipeline builda do codigo-fonte (`downloadArtifact: false`), o Dockerfile e multi-stage **Debian slim**
+(nao Alpine): `build-essential` so no builder, `pip install --user` -> `/root/.local` copiado com
+`--chown` para `/home/appuser/.local`, usuario nao-root `appuser`, `mkdir -p /app/data /app/temp
+/app/logs`, e as ENVs de imagem (`PATH`, `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`,
+`PYTHONPATH=/app`) no proprio Dockerfile — descrevem a imagem, nao o ambiente. So `TZ` vai para o values
+(`scaffold.python_runtime_env`). Sem HEALTHCHECK e sem tzdata/symlink (o modelo do time nao tem).
+`libgl1`/`libglib2.0-0` do modelo ficaram **de fora** por decisao do usuario: sao deps de OpenCV/Pillow,
+especificas da app. Com poetry, o lock e exportado para requirements dentro do builder, mantendo o mesmo
+`pip install --user`. O `CMD` sai em exec form e `validate_python_entrypoint` recusa sintaxe de shell.
 
 Perguntas novas no fluxo (escolha do usuario: minimo): `ASK_PYTHON_VERSION` (default 3.12),
 `ASK_PYTHON_PACKAGE_MANAGER` (pip|poetry, default pip) e `ASK_PYTHON_ENTRYPOINT` (default por tipo:
-api = `uvicorn main:app --host 0.0.0.0 --port 8080`, demais = `python main.py`). Depois delas o fluxo
+api = `uvicorn main:app --host 0.0.0.0 --port 8000`, demais = `python main.py`). Depois delas o fluxo
 cai no mesmo caminho do dotnet (applicationName -> apim path -> apiId -> host do ingress). Lint, feed
 privado, cobertura e `generatePackage` ficaram nos defaults do template. O roteamento pos-linguagem
 virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handle_language` quanto pelo
 `detect_language_step`.
 
-**387 testes** verdes, `mypy src` limpo; charts python (api/worker x dev/prod) validados com
-`helm template` real.
+De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
+(`application_env` agora consulta a linguagem, nao so o tipo).
+
+**394 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
+(python/dotnet x api/worker/cronjob x dev/prod).
 
 ## Estado anterior (atualizado em 2026-07-28)
 
