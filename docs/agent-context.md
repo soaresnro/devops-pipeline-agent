@@ -29,6 +29,25 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 
 ## Estado do projeto (atualizado em 2026-07-28)
 
+**Correcao: base chart e microservice-chart 0.4.5, nao 0.5.0 (2026-07-28).** A 0.5.0 vendorizada mais
+cedo veio do working tree de `D:\repositorios\AksHelmBaseCharts`, que **nao** e a versao que o time
+usa. A correta e a **0.4.5**, cujos arquivos o usuario forneceu em
+`C:\Users\nuno.oliveira\Downloads\microservice-chart-0.4.5\microservice-chart`. Os assets em
+`_vendor/` foram refeitos (`microservice-chart-0.4.5.tgz` + `.lock`, via `helm dependency build` real
+com o source normalizado para LF) e `scaffold._BASE_CHARTS` voltou para 0.4.5 em api/web.
+
+Diferencas 0.4.5 vs 0.5.0 (o que perdemos ao voltar): a 0.5.0 tinha `configmap.yaml`/`secret.yaml`
+(envFrom por flag + checksum annotations) e os blocos `pdb`/`podDisruptionBudget`/`hpa` nos values.
+A 0.4.5 usa `envFrom` livre (`{{- if .Values.envFrom }}` + `toYaml`) e **nao declara `pdb` no
+values.yaml**, embora tenha `templates/pdb.yaml` lendo `.Values.pdb.enabled` — os overrides gerados
+sempre setam `pdb.enabled: false`, entao nao quebra, mas renderizar a chart fina sem o override por
+ambiente daria nil pointer. Nada disso e usado pelo agente hoje. O gap de `podLabels` **continua**:
+a 0.4.5 tambem nao le `.Values.podLabels`. Validado com `helm template` real (api/web/worker/cronjob
+x dev/qa/uat/prod). 304 testes verdes, `mypy src` limpo.
+
+**Licao:** nao vendorizar base chart a partir de working tree de repo clonado sem confirmar a versao
+com o usuario — pegar o artefato exato (ou a tag/release) que o time publica.
+
 **apiId do APIM vira um por ambiente (2026-07-28).** O param `apiId` da pipeline dotnet foi
 substituido por **`apiIdDev`/`apiIdQa`/`apiIdUat`/`apiIdProd`** (so api; worker/cronjob continuam sem
 nenhum). A pergunta unica virou a fase **`ASK_API_IDS`** (`handle_api_ids` / `validate_api_ids`), que
@@ -57,7 +76,7 @@ conteudo precisa sair em tres formatos (map sob `microservice-chart:`, map sob `
 de `{name, value}` no cronjob). `render_helm_chart` injeta `app_env`/`datadog` por ambiente via
 `_env_context`. **Variaveis novas entram no helper, nao nos templates.**
 
-**GAP CONHECIDO:** microservice-chart 0.5.0 e worker-chart 1.0.0 **nao leem `.Values.podLabels`** — o
+**GAP CONHECIDO:** microservice-chart 0.4.5 e worker-chart 1.0.0 **nao leem `.Values.podLabels`** — o
 pod template so fixa `app` e `azure.workload.identity/use`. Confirmado com `helm template`: as `DD_*`
 aplicam, as `tags.datadoghq.com/*` de api/web/worker somem no render. O chart do cronjob e nosso, entao
 ganhou `{{- with .Values.podLabels }}` e ja renderiza. Para fechar o gap: adicionar podLabels no

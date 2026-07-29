@@ -71,7 +71,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
     assert "Dockerfile" in stdout
     assert "azure-pipelines.yaml" in stdout
     assert "helm/base/Chart.yaml" in stdout
-    assert "helm/base/charts/microservice-chart-0.5.0.tgz" in stdout
+    assert "helm/base/charts/microservice-chart-0.4.5.tgz" in stdout
     assert "helm/environments/dev/values.yaml" in stdout
     assert "sessao cancelada" in stdout.lower()
 
