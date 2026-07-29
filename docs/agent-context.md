@@ -32,9 +32,14 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
 **Stack python com contrato real (2026-07-29).** O agente passou a gerar a pipeline de aplicacoes
 Python a partir do `pipelines/template-aks-python.yml` (repo `AzurePipelinesTemplates`), em
 `templates/pipeline/python/azure-pipelines.yaml.j2`. `_pipeline_stack` agora mapeia
-`dotnet`/`python` -> stack proprio e o resto (node/go/web) segue no `_default`. Setting recomendado:
-`DEVOPS_TEMPLATE_PYTHON=pipelines/template-aks-python.yml`. Como o dotnet, o stack python referencia o
-repo de templates por BRANCH (`refs/heads/master`).
+`dotnet`/`python` -> stack proprio e o resto (node/go/web) segue no `_default`. Como o dotnet, o stack
+python referencia o repo de templates por BRANCH (`refs/heads/master`).
+
+O caminho do template virou **default do stack** (`executor._STACK_TEMPLATE_DEFAULTS`): python resolve
+para `pipelines/template-aks-python.yml` e dotnet para `pipelines/template-aks.yml` sem depender do
+`.env` (o `DEVOPS_TEMPLATE_<LINGUAGEM>` continua sobrepondo). Antes, sem o setting, os dois caiam no
+`DEVOPS_TEMPLATE_DEFAULT` generico (`pipelines/k8s-app.yaml`) e geravam uma pipeline que **nao compila**
+— o `extends.parameters` do contrato tem parametros que o template generico nao declara.
 
 Diferencas do contrato python que valem lembrar:
 - **apiId e UNICO** (nao ha `apiIdDev/Qa/Uat/Prod`). A fase `ASK_API_IDS` roda em modo `single`
@@ -66,7 +71,7 @@ privado, cobertura e `generatePackage` ficaram nos defaults do template. O rotea
 virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handle_language` quanto pelo
 `detect_language_step`.
 
-**383 testes** verdes, `mypy src` limpo; charts python (api/worker x dev/prod) validados com
+**387 testes** verdes, `mypy src` limpo; charts python (api/worker x dev/prod) validados com
 `helm template` real.
 
 ## Estado anterior (atualizado em 2026-07-28)

@@ -234,10 +234,21 @@ def _derive_acr_name(settings: Settings) -> str:
     return f"{settings.azdo_org.lower()}acr"
 
 
+# Caminho do template para os stacks com contrato real. O bloco extends.parameters
+# gerado para esses stacks e especifico desses templates: cair no
+# devops_template_default (generico) produziria uma pipeline que nao compila, com
+# parametros que o template destino nao declara. O .env ainda sobrepoe.
+_STACK_TEMPLATE_DEFAULTS: dict[Language, str] = {
+    Language.DOTNET: "pipelines/template-aks.yml",
+    Language.PYTHON: "pipelines/template-aks-python.yml",
+}
+
+
 def _pipeline_template_path(settings: Settings, app_type: AppType, language: Language) -> str:
     """Escolhe o template de pipeline pela linguagem; web reaproveita o de node.
 
-    Cai no devops_template_default quando a linguagem nao tem caminho proprio.
+    Precedencia: DEVOPS_TEMPLATE_<LINGUAGEM> > default do stack (quando a linguagem tem
+    contrato proprio) > DEVOPS_TEMPLATE_DEFAULT.
     """
     key = Language.NODE if app_type == AppType.WEB else language
     by_language = {
@@ -246,7 +257,11 @@ def _pipeline_template_path(settings: Settings, app_type: AppType, language: Lan
         Language.PYTHON: settings.devops_template_python,
         Language.GO: settings.devops_template_go,
     }
-    return by_language.get(key) or settings.devops_template_default
+    return (
+        by_language.get(key)
+        or _STACK_TEMPLATE_DEFAULTS.get(key)
+        or settings.devops_template_default
+    )
 
 
 def _timestamp_slug() -> str:

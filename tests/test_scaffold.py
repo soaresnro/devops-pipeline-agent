@@ -537,7 +537,10 @@ class TestPipelinePython:
 
     def test_estrutura_do_modelo_do_time(self, base_ctx: dict[str, object]) -> None:
         bundle = build_bundle(
-            app_type=AppType.API, language=Language.PYTHON, **base_ctx  # type: ignore[arg-type]
+            app_type=AppType.API,
+            language=Language.PYTHON,
+            pipeline_template_path="pipelines/template-aks-python.yml",
+            **base_ctx,  # type: ignore[arg-type]
         )
         parsed = yaml.safe_load(
             next(f for f in bundle.files if f.path == "azure-pipelines.yaml").content
@@ -558,7 +561,8 @@ class TestPipelinePython:
         assert "k8s-prod" in var_groups
         # o CI python nao usa Sonarqube (o template so tem lint/pytest/trivy)
         assert "Sonarqube" not in var_groups
-        assert parsed["extends"]["template"] == "pipelines/k8s-app.yaml@templates"
+        # alias @templates; o caminho vem do executor (ver _STACK_TEMPLATE_DEFAULTS)
+        assert parsed["extends"]["template"] == "pipelines/template-aks-python.yml@templates"
 
     def test_params_api(self, base_ctx: dict[str, object]) -> None:
         params = self._params(
