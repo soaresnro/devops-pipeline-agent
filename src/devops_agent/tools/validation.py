@@ -399,16 +399,13 @@ def validate_apim_path(value: str) -> ToolResult[str]:
     return ToolResult.success(path)
 
 
-def validate_api_ids(value: str, *, single: bool = False) -> ToolResult[dict[str, str]]:
+def validate_api_ids(value: str) -> ToolResult[dict[str, str]]:
     """Valida os apiIds do APIM, um por ambiente (obrigatorio, sem default).
 
     Aceita duas formas: um valor unico (aplicado aos quatro ambientes) ou os quatro
     separados por virgula, na ordem de `APIM_ENVIRONMENTS` (dev, qa, uat, prod).
     Cada apiId aceita letras, digitos e os caracteres . _ - (ex.: api-utils, utils-v1).
-
-    `single=True` restringe ao valor unico: o template-aks-python declara um unico
-    parametro `apiId`, entao aceitar quatro daria a impressao falsa de que os
-    ambientes teriam apiIds distintos.
+    Vale igual para dotnet e python: os dois contratos tem apiId por ambiente.
     """
     if not value or not value.strip():
         return ToolResult.failure("apiIds nao informados.", code="api_ids.empty")
@@ -416,12 +413,6 @@ def validate_api_ids(value: str, *, single: bool = False) -> ToolResult[dict[str
     partes = [parte.strip() for parte in value.split(",")]
     if len(partes) == 1:
         partes = partes * len(APIM_ENVIRONMENTS)
-    elif single:
-        return ToolResult.failure(
-            "Informe um unico apiId: o template python usa o mesmo em todos os ambientes "
-            f"(recebido: {len(partes)}).",
-            code="api_ids.single_only",
-        )
     elif len(partes) != len(APIM_ENVIRONMENTS):
         return ToolResult.failure(
             f"Informe 1 apiId (o mesmo para todos os ambientes) ou {len(APIM_ENVIRONMENTS)} "

@@ -233,26 +233,28 @@ class TestHandlePythonEntrypoint:
 
 
 class TestHandleUsesApim:
-    """Stack python pergunta se a api usa APIM antes de pedir path/apiId; o dotnet nao
-    (no template-aks o APIM e sempre habilitado para api)."""
+    """Toda api pergunta se usa APIM antes de pedir path/apiId, nos dois stacks."""
 
-    def test_python_api_pergunta_apim_depois_do_application_name(
-        self, session: SessionState
+    @pytest.mark.parametrize("language", [Language.PYTHON, Language.DOTNET])
+    def test_api_pergunta_apim_depois_do_application_name(
+        self, language: Language, session: SessionState
     ) -> None:
         session.app_type = AppType.API
-        session.language = Language.PYTHON
+        session.language = language
         session.phase = Phase.ASK_APPLICATION_NAME
         step = sm.handle_application_name(session, "api-cotacao")
         assert not step.error
         assert session.phase == Phase.ASK_USES_APIM
 
-    def test_dotnet_api_vai_direto_para_o_path(self, session: SessionState) -> None:
-        session.app_type = AppType.API
-        session.language = Language.DOTNET
+    @pytest.mark.parametrize("app_type", [AppType.WORKER, AppType.CRONJOB])
+    def test_nao_api_nao_pergunta_apim(
+        self, app_type: AppType, session: SessionState
+    ) -> None:
+        session.app_type = app_type
         session.phase = Phase.ASK_APPLICATION_NAME
-        step = sm.handle_application_name(session, "api-utils")
+        step = sm.handle_application_name(session, "billing-worker")
         assert not step.error
-        assert session.phase == Phase.ASK_APIM_PATH
+        assert session.phase == Phase.VALIDATE
 
     @pytest.mark.parametrize("resposta", ["sim", "s", "yes"])
     def test_sim_segue_para_o_path(self, resposta: str, session: SessionState) -> None:
@@ -287,49 +289,37 @@ class TestHandleUsesApim:
         assert session.uses_apim is None
 
 
-class TestApiIdsPorStack:
-    """O template python declara um unico apiId; o dotnet declara um por ambiente."""
+class TestApiIds:
+    """Os dois contratos (dotnet e python) tem apiId por AMBIENTE."""
 
-    def test_python_aceita_apenas_um_apiid(self, session: SessionState) -> None:
-        session.language = Language.PYTHON
-        session.phase = Phase.ASK_API_IDS
-        step = sm.handle_api_ids(session, "api-utils-dev,api-utils-qa,api-utils-uat,api-utils")
-        assert step.error
-        assert step.next_phase == Phase.ASK_API_IDS
-        assert session.api_ids is None
-
-    def test_python_replica_o_valor_unico(self, session: SessionState) -> None:
-        session.language = Language.PYTHON
-        session.phase = Phase.ASK_API_IDS
-        step = sm.handle_api_ids(session, "api-utils")
-        assert not step.error
-        assert session.api_ids == dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils")
-        assert session.phase == Phase.ASK_INGRESS_HOST
-        # o eco nao sugere um apiId por ambiente
-        assert "apiId: api-utils" in step.message_to_user
-
-    def test_dotnet_continua_aceitando_quatro(self, session: SessionState) -> None:
-        session.language = Language.DOTNET
+    @pytest.mark.parametrize("language", [Language.PYTHON, Language.DOTNET])
+    def test_quatro_valores_mapeiam_na_ordem(
+        self, language: Language, session: SessionState
+    ) -> None:
+        session.language = language
         session.phase = Phase.ASK_API_IDS
         step = sm.handle_api_ids(session, "a-dev,a-qa,a-uat,a-prod")
         assert not step.error
         assert session.api_ids == {"dev": "a-dev", "qa": "a-qa", "uat": "a-uat", "prod": "a-prod"}
+        assert session.phase == Phase.ASK_INGRESS_HOST
 
-    def test_pergunta_muda_por_stack(self) -> None:
-        assert sm.api_ids_single(Language.PYTHON)
-        assert not sm.api_ids_single(Language.DOTNET)
-        assert "mesmo apiId em todos os ambientes" in sm.api_ids_question(Language.PYTHON)
-        assert "dev,qa,uat,prod" in sm.api_ids_question(Language.DOTNET)
+    @pytest.mark.parametrize("language", [Language.PYTHON, Language.DOTNET])
+    def test_valor_unico_se_replica(self, language: Language, session: SessionState) -> None:
+        session.language = language
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "api-utils")
+        assert not step.error
+        assert session.api_ids == dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils")
 
 
 class TestHandleApplicationName:
-    def test_valido_api_vai_para_apim_path(self, session: SessionState) -> None:
+    def test_valido_api_vai_para_pergunta_de_apim(self, session: SessionState) -> None:
         session.app_type = AppType.API
         session.phase = Phase.ASK_APPLICATION_NAME
         step = sm.handle_application_name(session, "api-utils")
         assert not step.error
         assert session.application_name == "api-utils"
-        assert session.phase == Phase.ASK_APIM_PATH
+        assert session.phase == Phase.ASK_USES_APIM
 
     def test_vazio_usa_app_name(self, session: SessionState) -> None:
         session.app_type = AppType.API
@@ -338,7 +328,7 @@ class TestHandleApplicationName:
         step = sm.handle_application_name(session, "")
         assert not step.error
         assert session.application_name == "epharma-api-utils"
-        assert session.phase == Phase.ASK_APIM_PATH
+        assert session.phase == Phase.ASK_USES_APIM
 
     def test_worker_pula_apim_e_vai_para_validate(self, session: SessionState) -> None:
         session.app_type = AppType.WORKER

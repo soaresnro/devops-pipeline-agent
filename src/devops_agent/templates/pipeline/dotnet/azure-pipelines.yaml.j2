@@ -41,8 +41,8 @@ variables:
 extends:
   template: {{ pipeline_template_path }}@templates
   parameters:
-    # Habilitar integracao com o APIM (apenas api)
-    enableApim: {{ 'true' if app_type == 'api' else 'false' }}
+    # Habilitar integracao com o APIM (perguntado no fluxo; sempre false fora de api)
+    enableApim: {{ 'true' if uses_apim else 'false' }}
 
     # Defina valores da aplicacao
     applicationName: '{{ application_name }}'
@@ -51,6 +51,8 @@ extends:
     # Estrategia de deploy
     deploymentStrategy: 'rolling'
 
+    # Sem APIM (enableApim: false) os valores saem vazios - o template condiciona os
+    # jobs de import a enableApim + pathApiManagementService nao vazio.
     pathApiManagementService: '{{ apim_path }}'
 {%- if app_type == 'api' %}
 

@@ -373,6 +373,7 @@ def _build_template_context(
 ) -> dict[str, object]:
     defaults = _TYPE_DEFAULTS[app_type]
     entrypoint_argv = (python_entrypoint or default_python_entrypoint(app_type)).split()
+    apim_enabled = (app_type == AppType.API) if uses_apim is None else uses_apim
     return {
         "app_name": app_name,
         # applicationName/pathApiManagementService/apiIds/host do ingress: perguntados no
@@ -380,14 +381,14 @@ def _build_template_context(
         # Os apiIds (template-aks) sao obrigatorios para api, sem default.
         "application_name": application_name,
         # None = nao perguntado: vale o contrato do stack (APIM habilitado para api).
-        "uses_apim": (app_type == AppType.API) if uses_apim is None else uses_apim,
-        "apim_path": apim_path,
+        "uses_apim": apim_enabled,
+        # Sem APIM os parametros continuam sendo emitidos, porem VAZIOS: o template ja
+        # condiciona os jobs de import a `ne(pathApiManagementService, '')`.
+        "apim_path": apim_path if apim_enabled else "",
         # Normalizado com as quatro chaves para o template nao depender de `default`.
-        "api_ids": {env: api_ids.get(env, "") for env in APIM_ENVIRONMENTS},
-        # apiId escalar: o template-aks-python declara um unico parametro `apiId`.
-        # A pergunta do fluxo restringe o stack python a um valor unico (single=True),
-        # entao as quatro chaves de api_ids sao iguais e qualquer uma serve.
-        "api_id": api_ids.get(APIM_ENVIRONMENTS[0], ""),
+        "api_ids": {
+            env: (api_ids.get(env, "") if apim_enabled else "") for env in APIM_ENVIRONMENTS
+        },
         "ingress_host": ingress_host,
         "app_type": app_type.value,
         "language": language.value,

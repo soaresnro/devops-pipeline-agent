@@ -389,19 +389,7 @@ class TestValidatePythonEntrypoint:
 
 class TestValidateApiIds:
     """Aceita duas formas: um valor unico (vale para os quatro ambientes) ou os quatro
-    separados por virgula na ordem dev,qa,uat,prod."""
-
-    def test_single_replica_o_valor_unico(self) -> None:
-        # stack python: o template declara um unico apiId
-        r = validate_api_ids("api-utils", single=True)
-        assert r.ok, r.error
-        assert r.data == dict.fromkeys(APIM_ENVIRONMENTS, "api-utils")
-
-    @pytest.mark.parametrize("valor", ["a,b", "a-dev,a-qa,a-uat,a-prod"])
-    def test_single_rejeita_lista(self, valor: str) -> None:
-        r = validate_api_ids(valor, single=True)
-        assert not r.ok
-        assert r.error_code == "api_ids.single_only"
+    separados por virgula na ordem dev,qa,uat,prod. Vale igual para dotnet e python."""
 
     def test_ordem_das_chaves_e_o_contrato_da_pipeline(self) -> None:
         assert APIM_ENVIRONMENTS == ("dev", "qa", "uat", "prod")

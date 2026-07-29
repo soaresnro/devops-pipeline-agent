@@ -97,23 +97,6 @@ _QUESTIONS = {
 
 # O template-aks-python declara um unico parametro `apiId`; a pergunta muda de forma
 # para nao sugerir que da para ter um apiId por ambiente nesse stack.
-_API_IDS_QUESTION_SINGLE = (
-    "Qual o apiId do APIM (obrigatorio)? Ex.: api-utils\n"
-    "  O template python usa o mesmo apiId em todos os ambientes."
-)
-
-
-def api_ids_single(language: Language | None) -> bool:
-    """True quando o stack aceita apenas um apiId (contrato do template python)."""
-    return language == Language.PYTHON
-
-
-def api_ids_question(language: Language | None) -> str:
-    if api_ids_single(language):
-        return _API_IDS_QUESTION_SINGLE
-    return _QUESTIONS[Phase.ASK_API_IDS]
-
-
 # Primeira pergunta especifica de cada stack com template real. Linguagens sem entrada
 # aqui usam o template generico (_default) e vao direto para a validacao.
 _FIRST_PHASE_BY_LANGUAGE: dict[Language, Phase] = {
@@ -416,26 +399,14 @@ def _after_python_entrypoint(session: SessionState) -> StepResult:
     )
 
 
-def apim_is_optional(language: Language | None) -> bool:
-    """True quando o fluxo pergunta se a api usa APIM antes de pedir path/apiId.
-
-    So o stack python: no contrato dotnet (template-aks) o APIM e sempre habilitado
-    para api, entao perguntar seria oferecer uma opcao que o template nao tem.
-    """
-    return language == Language.PYTHON
-
-
 def _after_application_name(session: SessionState) -> StepResult:
-    """Apos o applicationName: api segue para o APIM; os demais validam direto."""
+    """Apos o applicationName: api pergunta se usa APIM; os demais validam direto."""
     if session.app_type == AppType.API:
-        # Stacks com APIM opcional perguntam antes; os demais vao direto ao path.
-        next_phase = (
-            Phase.ASK_USES_APIM
-            if apim_is_optional(session.language)
-            else Phase.ASK_APIM_PATH
+        session.phase = Phase.ASK_USES_APIM
+        return StepResult(
+            next_phase=Phase.ASK_USES_APIM,
+            message_to_user=_QUESTIONS[Phase.ASK_USES_APIM],
         )
-        session.phase = next_phase
-        return StepResult(next_phase=next_phase, message_to_user=_QUESTIONS[next_phase])
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
@@ -499,7 +470,7 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
         return StepResult(
             next_phase=Phase.ASK_API_IDS,
             message_to_user=f"Path do APIM: {session.apim_path}\n"
-        + api_ids_question(session.language),
+            + _QUESTIONS[Phase.ASK_API_IDS],
         )
 
     result = validate_apim_path(user_input)
@@ -514,14 +485,13 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
     session.phase = Phase.ASK_API_IDS
     return StepResult(
         next_phase=Phase.ASK_API_IDS,
-        message_to_user=f"Path do APIM: {result.data}\n" + api_ids_question(session.language),
+        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_API_IDS],
     )
 
 
 def handle_api_ids(session: SessionState, user_input: str) -> StepResult:
     # Obrigatorio (sem default): entrada vazia re-pergunta.
-    single = api_ids_single(session.language)
-    result = validate_api_ids(user_input, single=single)
+    result = validate_api_ids(user_input)
     if not result.ok or result.data is None:
         return StepResult(
             next_phase=Phase.ASK_API_IDS,
@@ -533,17 +503,13 @@ def handle_api_ids(session: SessionState, user_input: str) -> StepResult:
     session.phase = Phase.ASK_INGRESS_HOST
     return StepResult(
         next_phase=Phase.ASK_INGRESS_HOST,
-        message_to_user=_resumo_api_ids(result.data, single=single)
-        + "\n"
-        + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+        message_to_user=_resumo_api_ids(result.data) + "\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
     )
 
 
-def _resumo_api_ids(api_ids: dict[str, str], *, single: bool = False) -> str:
+def _resumo_api_ids(api_ids: dict[str, str]) -> str:
     """Eco dos apiIds resolvidos - explicita quando um valor unico cobre os quatro."""
     unicos = set(api_ids.values())
-    if single:
-        return f"apiId: {unicos.pop()}"
     if len(unicos) == 1:
         return f"apiId (o mesmo para {', '.join(api_ids)}): {unicos.pop()}"
     return "apiIds: " + ", ".join(f"{env}={api_id}" for env, api_id in api_ids.items())

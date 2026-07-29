@@ -42,10 +42,11 @@ para `pipelines/template-aks-python.yml` e dotnet para `pipelines/template-aks.y
 — o `extends.parameters` do contrato tem parametros que o template generico nao declara.
 
 Diferencas do contrato python que valem lembrar:
-- **apiId e UNICO** (nao ha `apiIdDev/Qa/Uat/Prod`). A fase `ASK_API_IDS` roda em modo `single`
-  (`sm.api_ids_single` / `validate_api_ids(single=True)`): uma lista por virgula e recusada com
-  `api_ids.single_only`. O valor segue guardado replicado nas quatro chaves de `SessionState.api_ids`
-  (o modelo nao mudou) e o template le o escalar `api_id` do contexto.
+- **apiId por AMBIENTE** (`apiIdDev/Qa/Uat/Prod`), igual ao dotnet: a fase `ASK_API_IDS` e a mesma
+  nos dois stacks (um valor unico replica nos quatro, ou os quatro por virgula na ordem dev,qa,uat,prod).
+  **ATENCAO:** no clone local de `AzurePipelinesTemplates` (branch `feature/security-scan-trivy`) o
+  `template-aks-python.yml` declara so `apiId` — precisa da mesma mudanca ja feita no `template-aks.yml`,
+  senao a pipeline gerada falha a compilacao com "Unexpected parameter 'apiIdDev'".
 - **`projectType` so aceita `api|worker`** -> cronjob python deploya como `worker` (o `kind: CronJob`
   vem do nosso chart self-contained, nao do parametro).
 - **`imageTag` e variavel, nao so parametro.** O `azure-pipelines.yml` declara
@@ -57,12 +58,13 @@ Diferencas do contrato python que valem lembrar:
   `testRequirementsFile` e `minimumCoverage` saem preenchidos para o time so trocar o flag.
 - **`sourceFolder: 'app'`** e a convencao do time (o default do template e `.`). Apps com codigo em
   `src/` ou na raiz ajustam no arquivo — por isso o comentario logo acima do parametro.
-- **APIM e opcional no stack python.** Fase nova `ASK_USES_APIM` (`handle_uses_apim` /
-  `validate_yes_no`), roteada por `state_machine.apim_is_optional` (hoje so python). Respondendo
-  `nao`, o fluxo pula path e apiId e vai direto ao host do ingress (que existe independente do
-  APIM), e a pipeline sai com `enableApim: false` sem `pathApiManagementService`/`apiId`. O dotnet
-  segue sem pergunta: o `template-aks` sempre habilita APIM para api. `SessionState.uses_apim`
-  (`bool | None`); `None` = nao perguntado, e o contexto resolve para o contrato do stack.
+- **APIM e opcional para api, nos DOIS stacks.** Fase `ASK_USES_APIM` (`handle_uses_apim` /
+  `validate_yes_no`), logo apos o applicationName. Respondendo `nao`, o fluxo pula path e apiIds e vai
+  direto ao host do ingress (que existe independente do APIM), e a pipeline sai com
+  `enableApim: false` e os parametros de APIM **emitidos porem vazios** (`_build_template_context` zera
+  `apim_path`/`api_ids`) — os dois templates condicionam os jobs de import a
+  `and(eq(enableApim, true), ne(pathApiManagementService, ''))`. `SessionState.uses_apim`
+  (`bool | None`); `None` = nao perguntado, e o contexto resolve pelo contrato do stack (api -> sim).
 
 **Porta da api e por LINGUAGEM (2026-07-29).** `scaffold.container_port` + `_API_PORT_BY_LANGUAGE`:
 python usa **8000** (uvicorn, modelo do time) e os demais seguem 8080. A porta atravessa tres arquivos —
@@ -93,7 +95,7 @@ virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handl
 De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
 (`application_env` agora consulta a linguagem, nao so o tipo).
 
-**408 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
+**407 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
 (python/dotnet x api/worker/cronjob x dev/prod).
 
 ## Estado anterior (atualizado em 2026-07-28)

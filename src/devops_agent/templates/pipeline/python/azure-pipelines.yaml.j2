@@ -81,11 +81,15 @@ extends:
     deploymentStrategy: 'rolling'
     # Sem Key Vault configurado; preencha quando necessario.
     keyvault: ''
-{%- if uses_apim %}
-    enableApim: true
+    enableApim: {{ 'true' if uses_apim else 'false' }}
+{%- if app_type == 'api' %}
+    # Sem APIM (enableApim: false) os valores saem vazios - o template condiciona os
+    # jobs de import a enableApim + pathApiManagementService nao vazio.
     pathApiManagementService: '{{ apim_path }}'
-    # O template python usa um unico apiId para todos os ambientes.
-    apiId: '{{ api_id }}'
-{%- else %}
-    enableApim: false
+
+    # apiId do APIM por ambiente
+    apiIdDev: '{{ api_ids['dev'] }}'
+    apiIdQa: '{{ api_ids['qa'] }}'
+    apiIdUat: '{{ api_ids['uat'] }}'
+    apiIdProd: '{{ api_ids['prod'] }}'
 {%- endif %}
