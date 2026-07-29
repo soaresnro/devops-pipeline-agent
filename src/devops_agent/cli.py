@@ -229,13 +229,8 @@ def _run_phase(session: SessionState, settings: object) -> bool:
         return True
 
     if session.phase == Phase.ASK_API_IDS:
-        _print_agent(sm.api_ids_question(session.language))
-        hint = (
-            "(apiId unico) >"
-            if sm.api_ids_single(session.language)
-            else "(apiId unico ou dev,qa,uat,prod) >"
-        )
-        raw = _ask(hint)
+        _print_agent(sm.question_for(Phase.ASK_API_IDS))
+        raw = _ask("(apiId unico ou dev,qa,uat,prod) >")
         step = sm.handle_api_ids(session, raw)
         if step.error:
             _print_error(step.message_to_user)

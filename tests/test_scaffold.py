@@ -512,7 +512,11 @@ class TestPipelinePython:
             "dockerfilePath",
             "failOnVulnerabilities",
             "pathApiManagementService",
-            "apiId",
+            # apiId por AMBIENTE (mesmo contrato do template-aks dotnet)
+            "apiIdDev",
+            "apiIdQa",
+            "apiIdUat",
+            "apiIdProd",
             "pathAutomation",
             "keyvault",
             "enableApim",
@@ -599,9 +603,10 @@ class TestPipelinePython:
         assert params["deploymentStrategy"] == "rolling"
         assert params["enableApim"] is True
         assert params["pathApiManagementService"] == "utils"
-        # apiId unico (o template python nao tem apiIdDev/Qa/Uat/Prod)
-        assert params["apiId"] == "api-utils"
-        assert not [k for k in params if k.startswith("apiId") and k != "apiId"]
+        # apiId por ambiente, como no dotnet
+        assert params["apiIdDev"] == "api-utils"
+        assert params["apiIdProd"] == "api-utils"
+        assert "apiId" not in params
         assert params["imageName"] == "$(Build.Repository.Name)"
         assert params["imageTag"] == "$(imageTag)"
         assert params["dockerfilePath"] == "Dockerfile"
@@ -646,24 +651,32 @@ class TestPipelinePython:
         assert "apiId" not in params
         assert "pathApiManagementService" not in params
 
-    def test_api_sem_apim_nao_emite_path_nem_apiid(self, base_ctx: dict[str, object]) -> None:
-        # resposta 'nao' na fase ASK_USES_APIM
-        params = self._params(app_type=AppType.API, uses_apim=False, **base_ctx)
-        assert params["enableApim"] is False
-        assert "pathApiManagementService" not in params
-        assert "apiId" not in params
-
-    def test_api_com_apim_emite_path_e_apiid(self, base_ctx: dict[str, object]) -> None:
+    def test_api_sem_apim_emite_path_e_apiids_vazios(self, base_ctx: dict[str, object]) -> None:
+        # resposta 'nao' na fase ASK_USES_APIM: os parametros continuam declarados,
+        # porem vazios (o template so importa no APIM se path nao for vazio)
         params = self._params(
             app_type=AppType.API,
-            uses_apim=True,
+            uses_apim=False,
             apim_path="cotacao",
             api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-cotacao"),
             **base_ctx,
         )
+        assert params["enableApim"] is False
+        assert params["pathApiManagementService"] == ""
+        assert all(params[f"apiId{env}"] == "" for env in ("Dev", "Qa", "Uat", "Prod"))
+
+    def test_api_com_apim_emite_path_e_apiids(self, base_ctx: dict[str, object]) -> None:
+        params = self._params(
+            app_type=AppType.API,
+            uses_apim=True,
+            apim_path="cotacao",
+            api_ids={"dev": "c-dev", "qa": "c-qa", "uat": "c-uat", "prod": "c-prod"},
+            **base_ctx,
+        )
         assert params["enableApim"] is True
         assert params["pathApiManagementService"] == "cotacao"
-        assert params["apiId"] == "api-cotacao"
+        assert params["apiIdDev"] == "c-dev"
+        assert params["apiIdProd"] == "c-prod"
 
     def test_web_python_cai_no_default(self, base_ctx: dict[str, object]) -> None:
         # web e sempre SPA em nginx: ignora a linguagem e usa o contrato generico

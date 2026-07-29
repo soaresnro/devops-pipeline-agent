@@ -50,6 +50,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "",  # versao .NET: enter mantem o default 8.0.x
             "",  # entrypoint .NET: enter usa o default app_name.dll
             "",  # applicationName: enter usa o nome do repo
+            "sim",  # usa APIM -> pergunta path e apiIds
             "",  # pathApiManagementService: enter deriva do applicationName
             "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: enter deriva de services<path>
@@ -97,6 +98,7 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
             "",  # versao .NET: default
             "",  # entrypoint .NET: default
             "",  # applicationName: default
+            "sim",  # usa APIM
             "",  # pathApiManagementService: default
             "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: default
@@ -133,6 +135,7 @@ def test_cli_apiids_por_virgula_e_reperguntados_se_quantidade_errada(tmp_path: P
             "",  # versao .NET
             "",  # entrypoint .NET
             "",  # applicationName
+            "sim",  # usa APIM
             "",  # pathApiManagementService
             "api-dev,api-qa",  # so 2 valores -> repergunta
             "api-dev,api-qa,api-uat,api-payments",  # os quatro, na ordem
@@ -170,10 +173,9 @@ def test_cli_fluxo_python_ate_confirm(tmp_path: Path) -> None:
             "poetry",  # gerenciador de dependencias
             "uvicorn app.main:app --host 0.0.0.0 --port 8080",  # entrypoint
             "",  # applicationName: enter usa o nome do repo
-            "sim",  # usa APIM -> pergunta path e apiId
+            "sim",  # usa APIM -> pergunta path e apiIds
             "",  # pathApiManagementService: enter deriva do applicationName
-            "api-cotacao,api-cotacao-qa",  # dois valores -> repergunta (python aceita 1 so)
-            "api-cotacao",  # apiId unico
+            "c-dev,c-qa,c-uat,c-prod",  # apiId por ambiente, igual ao dotnet
             "",  # host do ingress: default
             "nao",
             "",
@@ -186,7 +188,7 @@ def test_cli_fluxo_python_ate_confirm(tmp_path: Path) -> None:
     assert "versao do Python" in stdout
     assert "pip (requirements.txt) ou poetry" in stdout
     assert "exposta no APIM" in stdout
-    assert "Informe um unico apiId" in stdout  # erro da lista rejeitada
+    assert "apiIds: dev=c-dev, qa=c-qa, uat=c-uat, prod=c-prod" in stdout
     assert "Vou criar os seguintes arquivos" in stdout
     assert "azure-pipelines.yaml" in stdout
     assert "helm/base/charts/microservice-chart-0.4.5.tgz" in stdout
@@ -250,6 +252,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "",  # versao .NET: enter mantem o default
             "",  # entrypoint .NET: enter usa o default
             "",  # applicationName: default
+            "sim",  # usa APIM
             "",  # pathApiManagementService: default
             "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: default
