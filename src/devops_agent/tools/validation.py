@@ -114,6 +114,10 @@ _PYTHON_ENTRYPOINT_TOKEN_RE = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._:/=,+-]*$")
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 _DNS_LABEL_MAX_LEN = 63
 
+# Respostas sim/nao aceitas (o CLI ja usa esse conjunto no CONFIRM).
+_YES: frozenset[str] = frozenset({"sim", "s", "yes", "y", "true", "1"})
+_NO: frozenset[str] = frozenset({"nao", "não", "n", "no", "false", "0"})
+
 # apiId do APIM: identificador com letras/digitos e . _ - (comeca com letra/digito).
 _API_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -348,6 +352,22 @@ def validate_python_entrypoint(value: str) -> ToolResult[str]:
             code="python_entrypoint.invalid",
         )
     return ToolResult.success(command)
+
+
+def validate_yes_no(value: str) -> ToolResult[bool]:
+    """Interpreta uma resposta sim/nao. Nao assume default: vazio e recusado."""
+    if not value or not value.strip():
+        return ToolResult.failure("Responda sim ou nao.", code="yes_no.empty")
+
+    resposta = value.strip().lower()
+    if resposta in _YES:
+        return ToolResult.success(True)
+    if resposta in _NO:
+        return ToolResult.success(False)
+    return ToolResult.failure(
+        f"Resposta '{value.strip()}' nao reconhecida. Responda sim ou nao.",
+        code="yes_no.invalid",
+    )
 
 
 def validate_application_name(value: str) -> ToolResult[str]:

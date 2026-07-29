@@ -55,8 +55,14 @@ Diferencas do contrato python que valem lembrar:
 - **`runTests: false` emitido de proposito.** O default do template e `runTests=true` +
   `testPath='tests'`, que quebraria o primeiro run em repo sem pasta de testes; `testPath`,
   `testRequirementsFile` e `minimumCoverage` saem preenchidos para o time so trocar o flag.
-- **`sourceFolder: '.'`** e conservador (igual ao default do template). Apps com codigo em `app/` ou
-  `src/` ajustam no arquivo — por isso o comentario logo acima do parametro.
+- **`sourceFolder: 'app'`** e a convencao do time (o default do template e `.`). Apps com codigo em
+  `src/` ou na raiz ajustam no arquivo — por isso o comentario logo acima do parametro.
+- **APIM e opcional no stack python.** Fase nova `ASK_USES_APIM` (`handle_uses_apim` /
+  `validate_yes_no`), roteada por `state_machine.apim_is_optional` (hoje so python). Respondendo
+  `nao`, o fluxo pula path e apiId e vai direto ao host do ingress (que existe independente do
+  APIM), e a pipeline sai com `enableApim: false` sem `pathApiManagementService`/`apiId`. O dotnet
+  segue sem pergunta: o `template-aks` sempre habilita APIM para api. `SessionState.uses_apim`
+  (`bool | None`); `None` = nao perguntado, e o contexto resolve para o contrato do stack.
 
 **Porta da api e por LINGUAGEM (2026-07-29).** `scaffold.container_port` + `_API_PORT_BY_LANGUAGE`:
 python usa **8000** (uvicorn, modelo do time) e os demais seguem 8080. A porta atravessa tres arquivos —
@@ -78,8 +84,8 @@ especificas da app. Com poetry, o lock e exportado para requirements dentro do b
 
 Perguntas novas no fluxo (escolha do usuario: minimo): `ASK_PYTHON_VERSION` (default 3.12),
 `ASK_PYTHON_PACKAGE_MANAGER` (pip|poetry, default pip) e `ASK_PYTHON_ENTRYPOINT` (default por tipo:
-api = `uvicorn main:app --host 0.0.0.0 --port 8000`, demais = `python main.py`). Depois delas o fluxo
-cai no mesmo caminho do dotnet (applicationName -> apim path -> apiId -> host do ingress). Lint, feed
+api = `uvicorn main:app --host 0.0.0.0 --port 8000`, demais = `python main.py`), mais a de APIM.
+Ordem para api python: applicationName -> usa APIM? -> [apim path -> apiId] -> host do ingress. Lint, feed
 privado, cobertura e `generatePackage` ficaram nos defaults do template. O roteamento pos-linguagem
 virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handle_language` quanto pelo
 `detect_language_step`.
@@ -87,7 +93,7 @@ virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handl
 De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
 (`application_env` agora consulta a linguagem, nao so o tipo).
 
-**394 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
+**408 testes** verdes, `mypy src` limpo; charts validados com `helm template` real
 (python/dotnet x api/worker/cronjob x dev/prod).
 
 ## Estado anterior (atualizado em 2026-07-28)

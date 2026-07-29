@@ -626,7 +626,7 @@ class TestPipelinePython:
         assert params["minimumCoverage"] == 80
         assert params["runLint"] is True
         assert params["lintTool"] == "ruff"
-        assert params["sourceFolder"] == "."
+        assert params["sourceFolder"] == "app"
 
     @pytest.mark.parametrize(
         ("app_type", "project_type"),
@@ -645,6 +645,25 @@ class TestPipelinePython:
         assert params["enableApim"] is False
         assert "apiId" not in params
         assert "pathApiManagementService" not in params
+
+    def test_api_sem_apim_nao_emite_path_nem_apiid(self, base_ctx: dict[str, object]) -> None:
+        # resposta 'nao' na fase ASK_USES_APIM
+        params = self._params(app_type=AppType.API, uses_apim=False, **base_ctx)
+        assert params["enableApim"] is False
+        assert "pathApiManagementService" not in params
+        assert "apiId" not in params
+
+    def test_api_com_apim_emite_path_e_apiid(self, base_ctx: dict[str, object]) -> None:
+        params = self._params(
+            app_type=AppType.API,
+            uses_apim=True,
+            apim_path="cotacao",
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-cotacao"),
+            **base_ctx,
+        )
+        assert params["enableApim"] is True
+        assert params["pathApiManagementService"] == "cotacao"
+        assert params["apiId"] == "api-cotacao"
 
     def test_web_python_cai_no_default(self, base_ctx: dict[str, object]) -> None:
         # web e sempre SPA em nginx: ignora a linguagem e usa o contrato generico

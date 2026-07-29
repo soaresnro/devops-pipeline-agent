@@ -57,9 +57,9 @@ extends:
 {%- if python_package_manager == 'pip' %}
     requirementsFile: 'requirements.txt'
 {%- endif %}
-    # Pasta do pacote da aplicacao (lint, compileall e cobertura). Ajuste para 'app'/'src'
-    # se o codigo nao estiver na raiz.
-    sourceFolder: '.'
+    # Pasta do pacote da aplicacao (lint, compileall e cobertura). Ajuste se o codigo
+    # nao estiver em 'app' (ex.: 'src' ou '.' para a raiz do repositorio).
+    sourceFolder: 'app'
 
     # ---- Qualidade ----
     runLint: true
@@ -81,7 +81,7 @@ extends:
     deploymentStrategy: 'rolling'
     # Sem Key Vault configurado; preencha quando necessario.
     keyvault: ''
-{%- if app_type == 'api' %}
+{%- if uses_apim %}
     enableApim: true
     pathApiManagementService: '{{ apim_path }}'
     # O template python usa um unico apiId para todos os ambientes.

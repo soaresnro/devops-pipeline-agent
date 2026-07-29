@@ -160,6 +160,7 @@ def prepare_dry_run(
         python_package_manager=session.python_package_manager or DEFAULT_PYTHON_PACKAGE_MANAGER,
         python_entrypoint=session.python_entrypoint or "",
         application_name=session.application_name or "",
+        uses_apim=session.uses_apim,
         apim_path=session.apim_path or "",
         api_ids=session.api_ids or {},
         ingress_host=session.ingress_host or "",

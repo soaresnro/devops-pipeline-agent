@@ -208,6 +208,16 @@ def _run_phase(session: SessionState, settings: object) -> bool:
             _print_agent(step.message_to_user)
         return True
 
+    if session.phase == Phase.ASK_USES_APIM:
+        _print_agent(sm.question_for(Phase.ASK_USES_APIM))
+        raw = _ask("(sim / nao) >")
+        step = sm.handle_uses_apim(session, raw)
+        if step.error:
+            _print_error(step.message_to_user)
+        else:
+            _print_agent(step.message_to_user)
+        return True
+
     if session.phase == Phase.ASK_APIM_PATH:
         _print_agent(sm.question_for(Phase.ASK_APIM_PATH))
         raw = _ask("(enter para derivar do applicationName) >")

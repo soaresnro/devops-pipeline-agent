@@ -232,6 +232,61 @@ class TestHandlePythonEntrypoint:
         assert session.python_entrypoint is None
 
 
+class TestHandleUsesApim:
+    """Stack python pergunta se a api usa APIM antes de pedir path/apiId; o dotnet nao
+    (no template-aks o APIM e sempre habilitado para api)."""
+
+    def test_python_api_pergunta_apim_depois_do_application_name(
+        self, session: SessionState
+    ) -> None:
+        session.app_type = AppType.API
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "api-cotacao")
+        assert not step.error
+        assert session.phase == Phase.ASK_USES_APIM
+
+    def test_dotnet_api_vai_direto_para_o_path(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.language = Language.DOTNET
+        session.phase = Phase.ASK_APPLICATION_NAME
+        step = sm.handle_application_name(session, "api-utils")
+        assert not step.error
+        assert session.phase == Phase.ASK_APIM_PATH
+
+    @pytest.mark.parametrize("resposta", ["sim", "s", "yes"])
+    def test_sim_segue_para_o_path(self, resposta: str, session: SessionState) -> None:
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_USES_APIM
+        step = sm.handle_uses_apim(session, resposta)
+        assert not step.error
+        assert session.uses_apim is True
+        assert session.phase == Phase.ASK_APIM_PATH
+
+    @pytest.mark.parametrize("resposta", ["nao", "não", "n", "no"])
+    def test_nao_pula_path_e_apiid_e_vai_para_o_ingress(
+        self, resposta: str, session: SessionState
+    ) -> None:
+        # o ingress existe independentemente do APIM, entao o host continua sendo pedido
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_USES_APIM
+        step = sm.handle_uses_apim(session, resposta)
+        assert not step.error
+        assert session.uses_apim is False
+        assert session.apim_path is None
+        assert session.api_ids is None
+        assert session.phase == Phase.ASK_INGRESS_HOST
+
+    @pytest.mark.parametrize("resposta", ["", "talvez"])
+    def test_resposta_invalida_permanece(self, resposta: str, session: SessionState) -> None:
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_USES_APIM
+        step = sm.handle_uses_apim(session, resposta)
+        assert step.error
+        assert step.next_phase == Phase.ASK_USES_APIM
+        assert session.uses_apim is None
+
+
 class TestApiIdsPorStack:
     """O template python declara um unico apiId; o dotnet declara um por ambiente."""
 

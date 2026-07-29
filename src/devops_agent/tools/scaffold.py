@@ -366,6 +366,7 @@ def _build_template_context(
     python_package_manager: str,
     python_entrypoint: str,
     application_name: str,
+    uses_apim: bool | None,
     apim_path: str,
     api_ids: dict[str, str],
     ingress_host: str,
@@ -378,6 +379,8 @@ def _build_template_context(
         # fluxo, com defaults derivados quando aplicavel (ver executor/state_machine).
         # Os apiIds (template-aks) sao obrigatorios para api, sem default.
         "application_name": application_name,
+        # None = nao perguntado: vale o contrato do stack (APIM habilitado para api).
+        "uses_apim": (app_type == AppType.API) if uses_apim is None else uses_apim,
         "apim_path": apim_path,
         # Normalizado com as quatro chaves para o template nao depender de `default`.
         "api_ids": {env: api_ids.get(env, "") for env in APIM_ENVIRONMENTS},
@@ -602,6 +605,7 @@ def build_bundle(
     python_package_manager: str = DEFAULT_PYTHON_PACKAGE_MANAGER,
     python_entrypoint: str = "",
     application_name: str = "",
+    uses_apim: bool | None = None,
     apim_path: str = "",
     api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
@@ -633,6 +637,7 @@ def build_bundle(
         python_package_manager=python_package_manager,
         python_entrypoint=python_entrypoint,
         application_name=resolved_app,
+        uses_apim=uses_apim,
         apim_path=resolved_path,
         api_ids=api_ids or {},
         ingress_host=resolved_host,
@@ -670,6 +675,7 @@ def dry_run(
     python_package_manager: str = DEFAULT_PYTHON_PACKAGE_MANAGER,
     python_entrypoint: str = "",
     application_name: str = "",
+    uses_apim: bool | None = None,
     apim_path: str = "",
     api_ids: dict[str, str] | None = None,
     ingress_host: str = "",
@@ -697,6 +703,7 @@ def dry_run(
             python_package_manager=python_package_manager,
             python_entrypoint=python_entrypoint,
             application_name=application_name,
+            uses_apim=uses_apim,
             apim_path=apim_path,
             api_ids=api_ids or {},
             ingress_host=ingress_host,

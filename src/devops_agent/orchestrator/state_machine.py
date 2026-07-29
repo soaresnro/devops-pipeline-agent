@@ -33,6 +33,7 @@ from devops_agent.tools.validation import (
     validate_python_package_manager,
     validate_python_version,
     validate_repo_url,
+    validate_yes_no,
 )
 
 
@@ -71,6 +72,10 @@ _QUESTIONS = {
     Phase.ASK_APPLICATION_NAME: (
         "Qual o applicationName (nome curto da aplicacao)? Ex.: api-utils "
         "(enter usa o nome do repositorio)."
+    ),
+    Phase.ASK_USES_APIM: (
+        "A aplicacao vai ser exposta no APIM? (sim/nao)\n"
+        "  'nao' emite enableApim: false e pula as perguntas de path e apiId."
     ),
     Phase.ASK_APIM_PATH: (
         "Qual o pathApiManagementService (path no APIM)? Ex.: utils "
@@ -411,19 +416,56 @@ def _after_python_entrypoint(session: SessionState) -> StepResult:
     )
 
 
+def apim_is_optional(language: Language | None) -> bool:
+    """True quando o fluxo pergunta se a api usa APIM antes de pedir path/apiId.
+
+    So o stack python: no contrato dotnet (template-aks) o APIM e sempre habilitado
+    para api, entao perguntar seria oferecer uma opcao que o template nao tem.
+    """
+    return language == Language.PYTHON
+
+
 def _after_application_name(session: SessionState) -> StepResult:
-    """Apos o applicationName: api pergunta o path do APIM; os demais validam direto."""
+    """Apos o applicationName: api segue para o APIM; os demais validam direto."""
     if session.app_type == AppType.API:
-        session.phase = Phase.ASK_APIM_PATH
-        return StepResult(
-            next_phase=Phase.ASK_APIM_PATH,
-            message_to_user=_QUESTIONS[Phase.ASK_APIM_PATH],
+        # Stacks com APIM opcional perguntam antes; os demais vao direto ao path.
+        next_phase = (
+            Phase.ASK_USES_APIM
+            if apim_is_optional(session.language)
+            else Phase.ASK_APIM_PATH
         )
+        session.phase = next_phase
+        return StepResult(next_phase=next_phase, message_to_user=_QUESTIONS[next_phase])
     session.phase = Phase.VALIDATE
     return StepResult(
         next_phase=Phase.VALIDATE,
         message_to_user="Validando inputs...",
         awaits_input=False,
+    )
+
+
+def handle_uses_apim(session: SessionState, user_input: str) -> StepResult:
+    result = validate_yes_no(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_USES_APIM,
+            message_to_user=result.error or "Responda sim ou nao.",
+            error=result.error,
+        )
+
+    session.uses_apim = result.data
+    if result.data:
+        session.phase = Phase.ASK_APIM_PATH
+        return StepResult(
+            next_phase=Phase.ASK_APIM_PATH,
+            message_to_user="APIM: sim\n" + _QUESTIONS[Phase.ASK_APIM_PATH],
+        )
+
+    # Sem APIM: path e apiId nao sao perguntados, mas o ingress continua existindo.
+    session.phase = Phase.ASK_INGRESS_HOST
+    return StepResult(
+        next_phase=Phase.ASK_INGRESS_HOST,
+        message_to_user="APIM: nao (enableApim: false)\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
     )
 
 
