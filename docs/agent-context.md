@@ -27,7 +27,49 @@ Uma feature/mudanca so esta "pronta" quando, **no mesmo PR**:
   pessoal nos repos pessoais.
 - Antes de marcar uma feature como concluida: rodar `pytest` completo e `mypy src`.
 
-## Estado do projeto (atualizado em 2026-07-28)
+## Estado do projeto (atualizado em 2026-07-29)
+
+**Stack python com contrato real (2026-07-29).** O agente passou a gerar a pipeline de aplicacoes
+Python a partir do `pipelines/template-aks-python.yml` (repo `AzurePipelinesTemplates`), em
+`templates/pipeline/python/azure-pipelines.yaml.j2`. `_pipeline_stack` agora mapeia
+`dotnet`/`python` -> stack proprio e o resto (node/go/web) segue no `_default`. Setting recomendado:
+`DEVOPS_TEMPLATE_PYTHON=pipelines/template-aks-python.yml`. Como o dotnet, o stack python referencia o
+repo de templates por BRANCH (`refs/heads/master`).
+
+Diferencas do contrato python que valem lembrar:
+- **apiId e UNICO** (nao ha `apiIdDev/Qa/Uat/Prod`). A fase `ASK_API_IDS` roda em modo `single`
+  (`sm.api_ids_single` / `validate_api_ids(single=True)`): uma lista por virgula e recusada com
+  `api_ids.single_only`. O valor segue guardado replicado nas quatro chaves de `SessionState.api_ids`
+  (o modelo nao mudou) e o template le o escalar `api_id` do contexto.
+- **`projectType` so aceita `api|worker`** -> cronjob python deploya como `worker` (o `kind: CronJob`
+  vem do nosso chart self-contained, nao do parametro).
+- **Sem variable group `Sonarqube`** (o CI python e lint/pytest/trivy).
+- **`runTests: false` emitido de proposito.** O default do template e `runTests=true` +
+  `testPath='tests'`, que quebraria o primeiro run em repo sem pasta de testes; o arquivo gerado traz
+  comentado como ligar (decisao do usuario: pipeline verde no primeiro push).
+- **O Dockerfile python builda do CODIGO-FONTE.** A pipeline usa `downloadArtifact: false` +
+  `buildContext: $(Build.SourcesDirectory)`, entao o antigo Dockerfile runtime-only (COPY de artefato)
+  estava errado para esse stack. Agora e multi-stage: estagio `builder` com `build-base`/`libffi-dev`/
+  `openssl-dev` instalando em `--prefix=/install` (pip a partir de `requirements.txt`, ou poetry
+  exportando o lock), copiado para o runtime. O `CMD` sai em exec form (`python_entrypoint_cmd`,
+  json.dumps) e `validate_python_entrypoint` recusa sintaxe de shell (nao ha shell no exec form).
+- Envs de runtime do python vao para os values por ambiente (`scaffold.python_runtime_env`: `TZ`,
+  `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE`) — o Dockerfile python nao tem nenhuma `ENV`.
+  De quebra, `ASPNETCORE_ENVIRONMENT`/`SwaggerEnabled` deixaram de vazar para apps nao-dotnet
+  (`application_env` agora consulta a linguagem, nao so o tipo).
+
+Perguntas novas no fluxo (escolha do usuario: minimo): `ASK_PYTHON_VERSION` (default 3.12),
+`ASK_PYTHON_PACKAGE_MANAGER` (pip|poetry, default pip) e `ASK_PYTHON_ENTRYPOINT` (default por tipo:
+api = `uvicorn main:app --host 0.0.0.0 --port 8080`, demais = `python main.py`). Depois delas o fluxo
+cai no mesmo caminho do dotnet (applicationName -> apim path -> apiId -> host do ingress). Lint, feed
+privado, cobertura e `generatePackage` ficaram nos defaults do template. O roteamento pos-linguagem
+virou tabela (`state_machine._FIRST_PHASE_BY_LANGUAGE`), usada tanto pelo `handle_language` quanto pelo
+`detect_language_step`.
+
+**383 testes** verdes, `mypy src` limpo; charts python (api/worker x dev/prod) validados com
+`helm template` real.
+
+## Estado anterior (atualizado em 2026-07-28)
 
 **Correcao: base chart e microservice-chart 0.4.5, nao 0.5.0 (2026-07-28).** A 0.5.0 vendorizada mais
 cedo veio do working tree de `D:\repositorios\AksHelmBaseCharts`, que **nao** e a versao que o time

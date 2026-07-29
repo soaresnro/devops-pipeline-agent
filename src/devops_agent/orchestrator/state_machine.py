@@ -14,6 +14,7 @@ from devops_agent.models import AppType, Language, Phase, SessionState
 from devops_agent.tools.scaffold import (
     default_apim_path,
     default_ingress_host,
+    default_python_entrypoint,
     strip_namespace_prefix,
 )
 from devops_agent.tools.validation import (
@@ -28,6 +29,9 @@ from devops_agent.tools.validation import (
     validate_ingress_host,
     validate_k8s_namespace,
     validate_language,
+    validate_python_entrypoint,
+    validate_python_package_manager,
+    validate_python_version,
     validate_repo_url,
 )
 
@@ -54,6 +58,16 @@ _QUESTIONS = {
         "Qual o assembly de entrada (.dll)? Ex.: ePharma.Authentication.Services.dll "
         "(enter usa {app_name}.dll)."
     ),
+    Phase.ASK_PYTHON_VERSION: "Qual a versao do Python? Ex.: 3.12 (enter usa o default 3.12).",
+    Phase.ASK_PYTHON_PACKAGE_MANAGER: (
+        "O projeto usa pip (requirements.txt) ou poetry (pyproject.toml)? "
+        "(enter usa pip)."
+    ),
+    Phase.ASK_PYTHON_ENTRYPOINT: (
+        "Qual o comando que inicia a aplicacao no container? "
+        "Ex.: uvicorn main:app --host 0.0.0.0 --port 8080 "
+        "(enter usa o default do tipo de aplicacao)."
+    ),
     Phase.ASK_APPLICATION_NAME: (
         "Qual o applicationName (nome curto da aplicacao)? Ex.: api-utils "
         "(enter usa o nome do repositorio)."
@@ -74,6 +88,37 @@ _QUESTIONS = {
         "enter deriva de 'services<path>')."
     ),
 }
+
+
+# O template-aks-python declara um unico parametro `apiId`; a pergunta muda de forma
+# para nao sugerir que da para ter um apiId por ambiente nesse stack.
+_API_IDS_QUESTION_SINGLE = (
+    "Qual o apiId do APIM (obrigatorio)? Ex.: api-utils\n"
+    "  O template python usa o mesmo apiId em todos os ambientes."
+)
+
+
+def api_ids_single(language: Language | None) -> bool:
+    """True quando o stack aceita apenas um apiId (contrato do template python)."""
+    return language == Language.PYTHON
+
+
+def api_ids_question(language: Language | None) -> str:
+    if api_ids_single(language):
+        return _API_IDS_QUESTION_SINGLE
+    return _QUESTIONS[Phase.ASK_API_IDS]
+
+
+# Primeira pergunta especifica de cada stack com template real. Linguagens sem entrada
+# aqui usam o template generico (_default) e vao direto para a validacao.
+_FIRST_PHASE_BY_LANGUAGE: dict[Language, Phase] = {
+    Language.DOTNET: Phase.ASK_DOTNET_VERSION,
+    Language.PYTHON: Phase.ASK_PYTHON_VERSION,
+}
+
+
+def first_phase_for_language(language: Language) -> Phase | None:
+    return _FIRST_PHASE_BY_LANGUAGE.get(language)
 
 
 def greet(session: SessionState) -> StepResult:
@@ -218,12 +263,14 @@ def handle_language(session: SessionState, user_input: str) -> StepResult:
 
     session.language = result.data
 
-    # dotnet precisa da versao antes de prosseguir.
-    if result.data == Language.DOTNET:
-        session.phase = Phase.ASK_DOTNET_VERSION
+    # Stacks com template real (dotnet/python) coletam os parametros do contrato antes
+    # de validar; os demais caem no template generico e nao precisam de mais nada.
+    first_phase = first_phase_for_language(result.data)
+    if first_phase is not None:
+        session.phase = first_phase
         return StepResult(
-            next_phase=Phase.ASK_DOTNET_VERSION,
-            message_to_user=f"Linguagem: {result.data.value}\n" + _QUESTIONS[Phase.ASK_DOTNET_VERSION],
+            next_phase=first_phase,
+            message_to_user=f"Linguagem: {result.data.value}\n" + _QUESTIONS[first_phase],
         )
 
     session.phase = Phase.VALIDATE
@@ -284,6 +331,86 @@ def handle_dotnet_entrypoint(session: SessionState, user_input: str) -> StepResu
     )
 
 
+def handle_python_version(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia mantem o default do scaffold (session.python_version permanece None).
+    if not user_input.strip():
+        session.phase = Phase.ASK_PYTHON_PACKAGE_MANAGER
+        return StepResult(
+            next_phase=Phase.ASK_PYTHON_PACKAGE_MANAGER,
+            message_to_user="Mantendo a versao padrao do Python.\n"
+            + _QUESTIONS[Phase.ASK_PYTHON_PACKAGE_MANAGER],
+        )
+
+    result = validate_python_version(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_PYTHON_VERSION,
+            message_to_user=result.error or "Versao Python invalida.",
+            error=result.error,
+        )
+
+    session.python_version = result.data
+    session.phase = Phase.ASK_PYTHON_PACKAGE_MANAGER
+    return StepResult(
+        next_phase=Phase.ASK_PYTHON_PACKAGE_MANAGER,
+        message_to_user=f"Versao Python: {result.data}\n"
+        + _QUESTIONS[Phase.ASK_PYTHON_PACKAGE_MANAGER],
+    )
+
+
+def handle_python_package_manager(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia mantem o default do scaffold (pip).
+    if not user_input.strip():
+        session.phase = Phase.ASK_PYTHON_ENTRYPOINT
+        return StepResult(
+            next_phase=Phase.ASK_PYTHON_ENTRYPOINT,
+            message_to_user="Usando pip (requirements.txt).\n"
+            + _QUESTIONS[Phase.ASK_PYTHON_ENTRYPOINT],
+        )
+
+    result = validate_python_package_manager(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_PYTHON_PACKAGE_MANAGER,
+            message_to_user=result.error or "Gerenciador invalido.",
+            error=result.error,
+        )
+
+    session.python_package_manager = result.data
+    session.phase = Phase.ASK_PYTHON_ENTRYPOINT
+    return StepResult(
+        next_phase=Phase.ASK_PYTHON_ENTRYPOINT,
+        message_to_user=f"Gerenciador: {result.data}\n" + _QUESTIONS[Phase.ASK_PYTHON_ENTRYPOINT],
+    )
+
+
+def handle_python_entrypoint(session: SessionState, user_input: str) -> StepResult:
+    # Entrada vazia usa o default por tipo de aplicacao (ver default_python_entrypoint).
+    if not user_input.strip():
+        session.python_entrypoint = default_python_entrypoint(session.app_type or AppType.API)
+        return _after_python_entrypoint(session)
+
+    result = validate_python_entrypoint(user_input)
+    if not result.ok or result.data is None:
+        return StepResult(
+            next_phase=Phase.ASK_PYTHON_ENTRYPOINT,
+            message_to_user=result.error or "Entrypoint invalido.",
+            error=result.error,
+        )
+
+    session.python_entrypoint = result.data
+    return _after_python_entrypoint(session)
+
+
+def _after_python_entrypoint(session: SessionState) -> StepResult:
+    session.phase = Phase.ASK_APPLICATION_NAME
+    return StepResult(
+        next_phase=Phase.ASK_APPLICATION_NAME,
+        message_to_user=f"Entrypoint: {session.python_entrypoint}\n"
+        + _QUESTIONS[Phase.ASK_APPLICATION_NAME],
+    )
+
+
 def _after_application_name(session: SessionState) -> StepResult:
     """Apos o applicationName: api pergunta o path do APIM; os demais validam direto."""
     if session.app_type == AppType.API:
@@ -329,7 +456,8 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
         session.phase = Phase.ASK_API_IDS
         return StepResult(
             next_phase=Phase.ASK_API_IDS,
-            message_to_user=f"Path do APIM: {session.apim_path}\n" + _QUESTIONS[Phase.ASK_API_IDS],
+            message_to_user=f"Path do APIM: {session.apim_path}\n"
+        + api_ids_question(session.language),
         )
 
     result = validate_apim_path(user_input)
@@ -344,13 +472,14 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
     session.phase = Phase.ASK_API_IDS
     return StepResult(
         next_phase=Phase.ASK_API_IDS,
-        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_API_IDS],
+        message_to_user=f"Path do APIM: {result.data}\n" + api_ids_question(session.language),
     )
 
 
 def handle_api_ids(session: SessionState, user_input: str) -> StepResult:
     # Obrigatorio (sem default): entrada vazia re-pergunta.
-    result = validate_api_ids(user_input)
+    single = api_ids_single(session.language)
+    result = validate_api_ids(user_input, single=single)
     if not result.ok or result.data is None:
         return StepResult(
             next_phase=Phase.ASK_API_IDS,
@@ -362,13 +491,17 @@ def handle_api_ids(session: SessionState, user_input: str) -> StepResult:
     session.phase = Phase.ASK_INGRESS_HOST
     return StepResult(
         next_phase=Phase.ASK_INGRESS_HOST,
-        message_to_user=_resumo_api_ids(result.data) + "\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+        message_to_user=_resumo_api_ids(result.data, single=single)
+        + "\n"
+        + _QUESTIONS[Phase.ASK_INGRESS_HOST],
     )
 
 
-def _resumo_api_ids(api_ids: dict[str, str]) -> str:
+def _resumo_api_ids(api_ids: dict[str, str], *, single: bool = False) -> str:
     """Eco dos apiIds resolvidos - explicita quando um valor unico cobre os quatro."""
     unicos = set(api_ids.values())
+    if single:
+        return f"apiId: {unicos.pop()}"
     if len(unicos) == 1:
         return f"apiId (o mesmo para {', '.join(api_ids)}): {unicos.pop()}"
     return "apiIds: " + ", ".join(f"{env}={api_id}" for env, api_id in api_ids.items())

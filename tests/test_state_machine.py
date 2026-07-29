@@ -44,11 +44,12 @@ class TestHandleAppType:
 
 
 class TestHandleLanguage:
-    def test_linguagem_valida_vai_para_validate(self, session: SessionState) -> None:
+    def test_linguagem_sem_stack_proprio_vai_para_validate(self, session: SessionState) -> None:
+        # node/go caem no template generico (_default): nada mais a perguntar
         session.phase = Phase.ASK_LANGUAGE
-        step = sm.handle_language(session, "python")
+        step = sm.handle_language(session, "node")
         assert not step.error
-        assert session.language == Language.PYTHON
+        assert session.language == Language.NODE
         assert session.phase == Phase.VALIDATE
 
     def test_alias_aceito(self, session: SessionState) -> None:
@@ -63,6 +64,13 @@ class TestHandleLanguage:
         assert not step.error
         assert session.language == Language.DOTNET
         assert session.phase == Phase.ASK_DOTNET_VERSION
+
+    def test_python_vai_para_ask_python_version(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_LANGUAGE
+        step = sm.handle_language(session, "python")
+        assert not step.error
+        assert session.language == Language.PYTHON
+        assert session.phase == Phase.ASK_PYTHON_VERSION
 
     def test_invalida_permanece_em_ask_language(self, session: SessionState) -> None:
         session.phase = Phase.ASK_LANGUAGE
@@ -141,6 +149,122 @@ class TestHandleDotnetEntrypoint:
         assert step.error
         assert step.next_phase == Phase.ASK_DOTNET_ENTRYPOINT
         assert session.dotnet_entrypoint is None
+
+
+class TestHandlePythonVersion:
+    def test_versao_valida_vai_para_package_manager(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_VERSION
+        step = sm.handle_python_version(session, "3.11")
+        assert not step.error
+        assert session.python_version == "3.11"
+        assert session.phase == Phase.ASK_PYTHON_PACKAGE_MANAGER
+
+    def test_vazio_mantem_default_e_avanca(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_VERSION
+        step = sm.handle_python_version(session, "  ")
+        assert not step.error
+        assert session.python_version is None  # default aplicado no scaffold
+        assert session.phase == Phase.ASK_PYTHON_PACKAGE_MANAGER
+
+    def test_invalida_permanece(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_VERSION
+        step = sm.handle_python_version(session, "2.7")
+        assert step.error
+        assert step.next_phase == Phase.ASK_PYTHON_VERSION
+        assert session.python_version is None
+
+
+class TestHandlePythonPackageManager:
+    def test_poetry_vai_para_entrypoint(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_PACKAGE_MANAGER
+        step = sm.handle_python_package_manager(session, "poetry")
+        assert not step.error
+        assert session.python_package_manager == "poetry"
+        assert session.phase == Phase.ASK_PYTHON_ENTRYPOINT
+
+    def test_vazio_mantem_default_e_avanca(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_PACKAGE_MANAGER
+        step = sm.handle_python_package_manager(session, "")
+        assert not step.error
+        assert session.python_package_manager is None  # default pip no scaffold
+        assert session.phase == Phase.ASK_PYTHON_ENTRYPOINT
+
+    def test_invalido_permanece(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_PYTHON_PACKAGE_MANAGER
+        step = sm.handle_python_package_manager(session, "conda")
+        assert step.error
+        assert step.next_phase == Phase.ASK_PYTHON_PACKAGE_MANAGER
+        assert session.python_package_manager is None
+
+
+class TestHandlePythonEntrypoint:
+    def test_valido_vai_para_application_name(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.phase = Phase.ASK_PYTHON_ENTRYPOINT
+        step = sm.handle_python_entrypoint(session, "uvicorn app.main:app --port 8080")
+        assert not step.error
+        assert session.python_entrypoint == "uvicorn app.main:app --port 8080"
+        assert session.phase == Phase.ASK_APPLICATION_NAME
+
+    @pytest.mark.parametrize(
+        ("app_type", "esperado"),
+        [
+            (AppType.API, "uvicorn main:app --host 0.0.0.0 --port 8080"),
+            (AppType.WORKER, "python main.py"),
+        ],
+    )
+    def test_vazio_usa_default_do_tipo(
+        self, app_type: AppType, esperado: str, session: SessionState
+    ) -> None:
+        session.app_type = app_type
+        session.phase = Phase.ASK_PYTHON_ENTRYPOINT
+        step = sm.handle_python_entrypoint(session, "")
+        assert not step.error
+        assert session.python_entrypoint == esperado
+        assert session.phase == Phase.ASK_APPLICATION_NAME
+
+    def test_invalido_permanece(self, session: SessionState) -> None:
+        session.app_type = AppType.API
+        session.phase = Phase.ASK_PYTHON_ENTRYPOINT
+        step = sm.handle_python_entrypoint(session, "python app.py && echo ok")
+        assert step.error
+        assert step.next_phase == Phase.ASK_PYTHON_ENTRYPOINT
+        assert session.python_entrypoint is None
+
+
+class TestApiIdsPorStack:
+    """O template python declara um unico apiId; o dotnet declara um por ambiente."""
+
+    def test_python_aceita_apenas_um_apiid(self, session: SessionState) -> None:
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "api-utils-dev,api-utils-qa,api-utils-uat,api-utils")
+        assert step.error
+        assert step.next_phase == Phase.ASK_API_IDS
+        assert session.api_ids is None
+
+    def test_python_replica_o_valor_unico(self, session: SessionState) -> None:
+        session.language = Language.PYTHON
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "api-utils")
+        assert not step.error
+        assert session.api_ids == dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils")
+        assert session.phase == Phase.ASK_INGRESS_HOST
+        # o eco nao sugere um apiId por ambiente
+        assert "apiId: api-utils" in step.message_to_user
+
+    def test_dotnet_continua_aceitando_quatro(self, session: SessionState) -> None:
+        session.language = Language.DOTNET
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "a-dev,a-qa,a-uat,a-prod")
+        assert not step.error
+        assert session.api_ids == {"dev": "a-dev", "qa": "a-qa", "uat": "a-uat", "prod": "a-prod"}
+
+    def test_pergunta_muda_por_stack(self) -> None:
+        assert sm.api_ids_single(Language.PYTHON)
+        assert not sm.api_ids_single(Language.DOTNET)
+        assert "mesmo apiId em todos os ambientes" in sm.api_ids_question(Language.PYTHON)
+        assert "dev,qa,uat,prod" in sm.api_ids_question(Language.DOTNET)
 
 
 class TestHandleApplicationName:

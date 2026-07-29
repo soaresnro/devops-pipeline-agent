@@ -87,6 +87,28 @@ _DEFAULT_DOTNET_VERSION = "8.0.x"
 # Assembly de entrada .NET (ex.: ePharma.Authentication.Services[.dll]).
 _DOTNET_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# Versao Python: minor (3.12) ou patch pinado (3.12.4). Vira o versionSpec do
+# UsePythonVersion e a tag da imagem base (python:<versao>-alpine).
+_PYTHON_VERSION_RE = re.compile(r"^3\.(?:8|9|1[0-9])(?:\.\d{1,2})?$")
+_DEFAULT_PYTHON_VERSION = "3.12"
+
+# Gerenciadores aceitos pelo template python (parametro packageManager).
+_PYTHON_PACKAGE_MANAGERS: dict[str, str] = {
+    "pip": "pip",
+    "requirements": "pip",
+    "requirements.txt": "pip",
+    "poetry": "poetry",
+    "pyproject": "poetry",
+    "pyproject.toml": "poetry",
+}
+
+# Metacaracteres de shell: o CMD do Dockerfile e emitido em exec form (lista JSON),
+# entao nao ha shell para interpreta-los - recusamos para o usuario nao ser surpreendido.
+_SHELL_METACHARS = frozenset("|&;<>$`\\\"'()[]{}\n\r")
+
+# Token do comando de entrada: pode comecar com '-' (flags, ex.: --host).
+_PYTHON_ENTRYPOINT_TOKEN_RE = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._:/=,+-]*$")
+
 # Label DNS-1123 (applicationName, path de APIM, host base do ingress): minusculas,
 # digitos e hifen; nao comeca/termina com hifen. Reaproveita a regra do namespace.
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -271,6 +293,63 @@ def validate_dotnet_entrypoint(value: str) -> ToolResult[str]:
     return ToolResult.success(name)
 
 
+def validate_python_version(value: str) -> ToolResult[str]:
+    """Valida a versao do Python (ex.: 3.12 ou 3.12.4). Vazio -> default 3.12."""
+    if not value or not value.strip():
+        return ToolResult.success(_DEFAULT_PYTHON_VERSION)
+
+    version = value.strip().lower().removeprefix("v").removeprefix("python").strip()
+    if not _PYTHON_VERSION_RE.match(version):
+        return ToolResult.failure(
+            "Versao Python invalida. Use <major>.<minor> (ex.: 3.12) ou um patch "
+            "(ex.: 3.12.4). Suportadas: 3.8 a 3.19.",
+            code="python_version.invalid",
+        )
+    return ToolResult.success(version)
+
+
+def validate_python_package_manager(value: str) -> ToolResult[str]:
+    """Valida o packageManager do template python (pip ou poetry). Vazio -> pip."""
+    if not value or not value.strip():
+        return ToolResult.success("pip")
+
+    manager = _PYTHON_PACKAGE_MANAGERS.get(value.strip().lower())
+    if manager is None:
+        return ToolResult.failure(
+            "Gerenciador invalido. Use 'pip' (requirements.txt) ou 'poetry' (pyproject.toml).",
+            code="python_package_manager.invalid",
+        )
+    return ToolResult.success(manager)
+
+
+def validate_python_entrypoint(value: str) -> ToolResult[str]:
+    """Valida o comando de entrada da imagem Python (vira o CMD em exec form).
+
+    Ex.: 'uvicorn main:app --host 0.0.0.0 --port 8080' ou 'python -m app.worker'.
+    """
+    if not value or not value.strip():
+        return ToolResult.failure(
+            "Entrypoint nao informado.", code="python_entrypoint.empty"
+        )
+
+    command = " ".join(value.split())
+    if any(ch in _SHELL_METACHARS for ch in command):
+        return ToolResult.failure(
+            "Entrypoint invalido: o CMD e gerado em exec form (sem shell), entao aspas, "
+            "pipes, redirecionamentos e variaveis ($VAR) nao sao interpretados. "
+            "Informe apenas o comando e seus argumentos "
+            "(ex.: uvicorn main:app --host 0.0.0.0 --port 8080).",
+            code="python_entrypoint.shell_syntax",
+        )
+    if not all(_PYTHON_ENTRYPOINT_TOKEN_RE.match(token) for token in command.split(" ")):
+        return ToolResult.failure(
+            "Entrypoint invalido. Use letras, digitos e os caracteres . _ - : / = , + "
+            "(ex.: gunicorn app.main:app --bind 0.0.0.0:8080).",
+            code="python_entrypoint.invalid",
+        )
+    return ToolResult.success(command)
+
+
 def validate_application_name(value: str) -> ToolResult[str]:
     """Valida o applicationName da pipeline/Helm (label DNS-1123, ex.: api-utils)."""
     if not value or not value.strip():
@@ -300,12 +379,16 @@ def validate_apim_path(value: str) -> ToolResult[str]:
     return ToolResult.success(path)
 
 
-def validate_api_ids(value: str) -> ToolResult[dict[str, str]]:
+def validate_api_ids(value: str, *, single: bool = False) -> ToolResult[dict[str, str]]:
     """Valida os apiIds do APIM, um por ambiente (obrigatorio, sem default).
 
     Aceita duas formas: um valor unico (aplicado aos quatro ambientes) ou os quatro
     separados por virgula, na ordem de `APIM_ENVIRONMENTS` (dev, qa, uat, prod).
     Cada apiId aceita letras, digitos e os caracteres . _ - (ex.: api-utils, utils-v1).
+
+    `single=True` restringe ao valor unico: o template-aks-python declara um unico
+    parametro `apiId`, entao aceitar quatro daria a impressao falsa de que os
+    ambientes teriam apiIds distintos.
     """
     if not value or not value.strip():
         return ToolResult.failure("apiIds nao informados.", code="api_ids.empty")
@@ -313,6 +396,12 @@ def validate_api_ids(value: str) -> ToolResult[dict[str, str]]:
     partes = [parte.strip() for parte in value.split(",")]
     if len(partes) == 1:
         partes = partes * len(APIM_ENVIRONMENTS)
+    elif single:
+        return ToolResult.failure(
+            "Informe um unico apiId: o template python usa o mesmo em todos os ambientes "
+            f"(recebido: {len(partes)}).",
+            code="api_ids.single_only",
+        )
     elif len(partes) != len(APIM_ENVIRONMENTS):
         return ToolResult.failure(
             f"Informe 1 apiId (o mesmo para todos os ambientes) ou {len(APIM_ENVIRONMENTS)} "

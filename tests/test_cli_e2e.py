@@ -149,6 +149,48 @@ def test_cli_apiids_por_virgula_e_reperguntados_se_quantidade_errada(tmp_path: P
     assert "apiIds: dev=api-dev, qa=api-qa, uat=api-uat, prod=api-payments" in stdout
 
 
+def test_cli_fluxo_python_ate_confirm(tmp_path: Path) -> None:
+    """Fluxo do stack python: versao + pip/poetry + entrypoint, e apiId unico."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AZDO_ORG=contoso\n"
+        "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n"
+        "DEVOPS_TEMPLATE_PYTHON=pipelines/template-aks-python.yml\n",
+        encoding="utf-8",
+    )
+
+    inputs = "\n".join(
+        [
+            "https://dev.azure.com/contoso/Platform/_git/api-cotacao",
+            "develop",
+            "corporativo",
+            "api",
+            "python",  # deteccao inconclusiva sem PAT -> pergunta a linguagem
+            "3.11",  # versao do Python
+            "poetry",  # gerenciador de dependencias
+            "uvicorn app.main:app --host 0.0.0.0 --port 8080",  # entrypoint
+            "",  # applicationName: enter usa o nome do repo
+            "",  # pathApiManagementService: enter deriva do applicationName
+            "api-cotacao,api-cotacao-qa",  # dois valores -> repergunta (python aceita 1 so)
+            "api-cotacao",  # apiId unico
+            "",  # host do ingress: default
+            "nao",
+            "",
+        ]
+    )
+
+    result = _run_cli(tmp_path, inputs)
+    assert result.returncode == 2, f"stdout={result.stdout}\nstderr={result.stderr}"
+    stdout = result.stdout
+    assert "versao do Python" in stdout
+    assert "pip (requirements.txt) ou poetry" in stdout
+    assert "Informe um unico apiId" in stdout  # erro da lista rejeitada
+    assert "Vou criar os seguintes arquivos" in stdout
+    assert "azure-pipelines.yaml" in stdout
+    assert "helm/base/charts/microservice-chart-0.4.5.tgz" in stdout
+    assert "sessao cancelada" in stdout.lower()
+
+
 def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(

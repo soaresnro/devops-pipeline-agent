@@ -11,6 +11,7 @@ from pathlib import Path
 
 from devops_agent.config import Settings
 from devops_agent.models import AppType, ExecutionResult, Language, Phase, SessionState, ToolResult
+from devops_agent.orchestrator import state_machine
 from devops_agent.tools.auth import acquire_app_token, acquire_user_obo_token
 from devops_agent.tools.azdo import AzdoClient
 from devops_agent.tools.detection import LanguageDetection, detect_language
@@ -26,6 +27,8 @@ from devops_agent.tools.git_ops import (
 from devops_agent.tools.scaffold import (
     DEFAULT_CRON_SCHEDULE,
     DEFAULT_DOTNET_VERSION,
+    DEFAULT_PYTHON_PACKAGE_MANAGER,
+    DEFAULT_PYTHON_VERSION,
     DryRunResult,
     ScaffoldBundle,
     build_bundle,
@@ -153,6 +156,9 @@ def prepare_dry_run(
         schedule=session.schedule or DEFAULT_CRON_SCHEDULE,
         dotnet_version=session.dotnet_version or DEFAULT_DOTNET_VERSION,
         dotnet_entrypoint=session.dotnet_entrypoint or "",
+        python_version=session.python_version or DEFAULT_PYTHON_VERSION,
+        python_package_manager=session.python_package_manager or DEFAULT_PYTHON_PACKAGE_MANAGER,
+        python_entrypoint=session.python_entrypoint or "",
         application_name=session.application_name or "",
         apim_path=session.apim_path or "",
         api_ids=session.api_ids or {},
@@ -215,12 +221,9 @@ def detect_language_step(
     assert detection is not None  # detect_language sempre retorna sucesso
     if detection.is_conclusive and detection.language is not None:
         session.language = detection.language
-        # dotnet precisa da versao antes de validar; demais seguem direto.
-        session.phase = (
-            Phase.ASK_DOTNET_VERSION
-            if detection.language == Language.DOTNET
-            else Phase.VALIDATE
-        )
+        # Stacks com template real (dotnet/python) coletam os parametros do contrato
+        # antes de validar; os demais seguem direto.
+        session.phase = state_machine.first_phase_for_language(detection.language) or Phase.VALIDATE
         return ToolResult.success(detection)
 
     return _inconclusive(detection.candidates)

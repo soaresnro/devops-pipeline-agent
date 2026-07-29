@@ -1,0 +1,70 @@
+# Pipeline gerada automaticamente pelo devops-pipeline-agent
+# App: {{ app_name }} | Stack: Python {{ python_version }} | Namespace: {{ namespace }}
+# NAO edite manualmente - este arquivo apenas referencia o template centralizado.
+
+name: $(Build.SourceBranchName).$(Build.BuildId)
+
+trigger:
+  branches:
+    include:
+      - develop
+      - release/*
+      - hotfix/*
+      - feature/*
+
+# Os manifests do Helm vivem neste proprio repositorio (helm/base +
+# helm/environments); a pipeline os le do checkout self, sem resource dedicado.
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: {{ devops_templates_repo_name }}
+      ref: refs/heads/{{ devops_templates_branch }}
+
+pool:
+  name: agt_pool_linux_vmss
+
+variables:
+  - group: DevOpsShared
+  - group: ServiceConnections
+  - group: k8s-dev
+  - group: k8s-qa
+  - group: k8s-uat
+  - group: k8s-prod
+
+extends:
+  template: {{ pipeline_template_path }}@templates
+  parameters:
+    # Habilitar integracao com o APIM (apenas api)
+    enableApim: {{ 'true' if app_type == 'api' else 'false' }}
+
+    # Defina valores da aplicacao
+    applicationName: '{{ application_name }}'
+    namespace: '{{ namespace }}'
+
+    # Estrategia de deploy
+    deploymentStrategy: 'rolling'
+{%- if app_type == 'api' %}
+
+    pathApiManagementService: '{{ apim_path }}'
+    # O template python usa um unico apiId para todos os ambientes.
+    apiId: '{{ api_id }}'
+{%- endif %}
+
+    # Tipo e stack
+    ApplicationType: 'python'
+    projectType: '{{ python_project_type }}'
+    pythonVersion: '{{ python_version }}'
+    packageManager: '{{ python_package_manager }}'
+
+    # Quality gates: o scaffold entrega a pipeline rodando verde no primeiro push.
+    # Ligue runTests quando o repo tiver testes (ajuste testPath/minimumCoverage se
+    # os testes nao estiverem em ./tests):
+    #   runTests: true
+    #   testPath: 'tests'
+    #   minimumCoverage: 80
+    runTests: false
+
+    # Variaveis para Docker
+    imageName: '$(Build.Repository.Name)'
+    imageTag: '$(Build.SourceBranchName)-$(Build.BuildId)'

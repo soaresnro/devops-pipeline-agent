@@ -165,6 +165,26 @@ extends:
     imageTag: $(Build.SourceBranchName)-$(Build.BuildId)
 ```
 
+```yaml
+# stack python (espelha o template-aks-python.yml); mesmo cabecalho, contrato proprio
+extends:
+  template: pipelines/template-aks-python.yml@templates
+  parameters:
+    enableApim: true                                 # so api
+    applicationName: api-cotacao
+    namespace: corporativo
+    deploymentStrategy: rolling
+    pathApiManagementService: cotacao                # so api
+    apiId: api-cotacao                               # UNICO (nao ha apiIdDev/Qa/Uat/Prod aqui)
+    ApplicationType: python
+    projectType: api                                 # api|worker (cronjob deploya como worker)
+    pythonVersion: '3.12'                            # perguntado (default 3.12)
+    packageManager: pip                              # perguntado: pip|poetry
+    runTests: false                                  # scaffold entrega o gate desligado
+    imageName: $(Build.Repository.Name)
+    imageTag: $(Build.SourceBranchName)-$(Build.BuildId)
+```
+
 O Helm vive no **repositorio da propria aplicacao**: o chart vai para `helm/base/` e os overrides
 por ambiente para `helm/environments/<env>/values.yaml` (o template do time le os manifests do checkout
 self e faz `helm upgrade -f` por ambiente). Nao ha PR no repo do time de DevOps.
@@ -184,7 +204,8 @@ e gerado para todos os ambientes, incluindo `dev` (a referencia deixa dev vazio,
 override para o usuario ajustar).
 
 **Decisao critica:** o stack `_default` referencia o template por tag (evita que mudanca no template quebre
-pipelines pinadas); o stack `dotnet` referencia por branch `master` para espelhar 1:1 o contrato real do time.
+pipelines pinadas); os stacks `dotnet` e `python` referenciam por branch `master` para espelhar 1:1 os
+contratos reais do time (`template-aks.yml` / `template-aks-python.yml`).
 
 ### Variacoes API/Worker/Web
 

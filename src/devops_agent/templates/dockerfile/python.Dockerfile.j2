@@ -1,7 +1,28 @@
 # syntax=docker/dockerfile:1.7
-# Dockerfile Python (runtime-only) gerado para {{ app_name }} ({{ app_type }})
-# A pipeline instala deps/buildva e usa a saida como contexto do build (COPY . .).
-FROM python:3.12-alpine AS runtime
+# Dockerfile Python gerado para {{ app_name }} ({{ app_type }})
+# Diferente do stack .NET, a pipeline python NAO publica artefato antes do build
+# (downloadArtifact: false, buildContext = $(Build.SourcesDirectory)): a imagem e
+# construida a partir do codigo-fonte e o install das dependencias acontece aqui.
+
+FROM python:{{ python_version }}-alpine AS builder
+
+WORKDIR /app
+
+# Toolchain de compilacao para pacotes sem wheel para musl (Alpine). Fica so no
+# estagio de build; acrescente aqui os -dev que suas libs exigirem (ex.: postgresql-dev).
+RUN apk add --no-cache build-base libffi-dev openssl-dev
+{% if python_package_manager == 'poetry' %}
+COPY pyproject.toml poetry.lock* ./
+# Exporta o lock para requirements e instala num prefixo isolado, copiado no runtime.
+RUN pip install --no-cache-dir poetry poetry-plugin-export \
+ && poetry export --without-hashes --format=requirements.txt --output=/tmp/requirements.txt \
+ && pip install --no-cache-dir --prefix=/install -r /tmp/requirements.txt
+{% else %}
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+{% endif %}
+
+FROM python:{{ python_version }}-alpine AS runtime
 
 WORKDIR /app
 {% if app_type == 'api' %}
@@ -9,17 +30,14 @@ EXPOSE 8080
 {% endif %}
 RUN apk add --no-cache tzdata ca-certificates wget && update-ca-certificates
 
-# Timezone
-ENV TZ=America/Sao_Paulo
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# Timezone default da imagem (a variavel TZ vive no values de cada ambiente).
+RUN ln -snf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime \
+ && echo America/Sao_Paulo > /etc/timezone
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
+COPY --from=builder /install /usr/local
 COPY . .
 {% if app_type == 'api' %}
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:8080/health || exit 1
 {% endif %}
-# Ajuste para o entrypoint real da aplicacao.
-CMD ["python", "-m", "{{ app_name }}"]
+CMD {{ python_entrypoint_cmd }}
