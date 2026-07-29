@@ -17,7 +17,7 @@ from devops_agent.tools.scaffold import (
     strip_namespace_prefix,
 )
 from devops_agent.tools.validation import (
-    validate_api_id,
+    validate_api_ids,
     validate_apim_path,
     validate_app_type,
     validate_application_name,
@@ -62,8 +62,11 @@ _QUESTIONS = {
         "Qual o pathApiManagementService (path no APIM)? Ex.: utils "
         "(enter deriva do applicationName, sem o prefixo 'api-')."
     ),
-    Phase.ASK_API_ID: (
-        "Qual o apiId do APIM? Ex.: api-utils (obrigatorio - o template-aks exige)."
+    Phase.ASK_API_IDS: (
+        "Quais os apiIds do APIM (obrigatorio - o template-aks exige um por ambiente)?\n"
+        "  - um valor unico e aplicado aos quatro ambientes. Ex.: api-utils\n"
+        "  - ou os quatro separados por virgula, na ordem dev,qa,uat,prod. "
+        "Ex.: api-utils-dev,api-utils-qa,api-utils-uat,api-utils"
     ),
     Phase.ASK_INGRESS_HOST: (
         "Qual o host base do ingress? Ex.: servicesutils "
@@ -323,10 +326,10 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
     # Entrada vazia deriva do applicationName (sem o prefixo 'api-').
     if not user_input.strip():
         session.apim_path = default_apim_path(application_name)
-        session.phase = Phase.ASK_API_ID
+        session.phase = Phase.ASK_API_IDS
         return StepResult(
-            next_phase=Phase.ASK_API_ID,
-            message_to_user=f"Path do APIM: {session.apim_path}\n" + _QUESTIONS[Phase.ASK_API_ID],
+            next_phase=Phase.ASK_API_IDS,
+            message_to_user=f"Path do APIM: {session.apim_path}\n" + _QUESTIONS[Phase.ASK_API_IDS],
         )
 
     result = validate_apim_path(user_input)
@@ -338,29 +341,37 @@ def handle_apim_path(session: SessionState, user_input: str) -> StepResult:
         )
 
     session.apim_path = result.data
-    session.phase = Phase.ASK_API_ID
+    session.phase = Phase.ASK_API_IDS
     return StepResult(
-        next_phase=Phase.ASK_API_ID,
-        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_API_ID],
+        next_phase=Phase.ASK_API_IDS,
+        message_to_user=f"Path do APIM: {result.data}\n" + _QUESTIONS[Phase.ASK_API_IDS],
     )
 
 
-def handle_api_id(session: SessionState, user_input: str) -> StepResult:
+def handle_api_ids(session: SessionState, user_input: str) -> StepResult:
     # Obrigatorio (sem default): entrada vazia re-pergunta.
-    result = validate_api_id(user_input)
+    result = validate_api_ids(user_input)
     if not result.ok or result.data is None:
         return StepResult(
-            next_phase=Phase.ASK_API_ID,
-            message_to_user=result.error or "apiId invalido.",
+            next_phase=Phase.ASK_API_IDS,
+            message_to_user=result.error or "apiIds invalidos.",
             error=result.error,
         )
 
-    session.api_id = result.data
+    session.api_ids = result.data
     session.phase = Phase.ASK_INGRESS_HOST
     return StepResult(
         next_phase=Phase.ASK_INGRESS_HOST,
-        message_to_user=f"apiId: {result.data}\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
+        message_to_user=_resumo_api_ids(result.data) + "\n" + _QUESTIONS[Phase.ASK_INGRESS_HOST],
     )
+
+
+def _resumo_api_ids(api_ids: dict[str, str]) -> str:
+    """Eco dos apiIds resolvidos - explicita quando um valor unico cobre os quatro."""
+    unicos = set(api_ids.values())
+    if len(unicos) == 1:
+        return f"apiId (o mesmo para {', '.join(api_ids)}): {unicos.pop()}"
+    return "apiIds: " + ", ".join(f"{env}={api_id}" for env, api_id in api_ids.items())
 
 
 def handle_ingress_host(session: SessionState, user_input: str) -> StepResult:

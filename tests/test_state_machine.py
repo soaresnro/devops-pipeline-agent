@@ -197,13 +197,13 @@ class TestHandleApplicationName:
 
 
 class TestHandleApimPath:
-    def test_valido_vai_para_api_id(self, session: SessionState) -> None:
+    def test_valido_vai_para_api_ids(self, session: SessionState) -> None:
         session.application_name = "api-utils"
         session.phase = Phase.ASK_APIM_PATH
         step = sm.handle_apim_path(session, "utils")
         assert not step.error
         assert session.apim_path == "utils"
-        assert session.phase == Phase.ASK_API_ID
+        assert session.phase == Phase.ASK_API_IDS
 
     def test_vazio_deriva_do_application_name(self, session: SessionState) -> None:
         session.application_name = "api-utils"
@@ -211,24 +211,72 @@ class TestHandleApimPath:
         step = sm.handle_apim_path(session, "")
         assert not step.error
         assert session.apim_path == "utils"  # remove o prefixo 'api-'
-        assert session.phase == Phase.ASK_API_ID
+        assert session.phase == Phase.ASK_API_IDS
 
 
-class TestHandleApiId:
-    def test_valido_vai_para_ingress_host(self, session: SessionState) -> None:
-        session.phase = Phase.ASK_API_ID
-        step = sm.handle_api_id(session, "api-utils")
+class TestHandleApiIds:
+    def test_quatro_valores_mapeiam_na_ordem(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "utils-dev,utils-qa,utils-uat,utils")
         assert not step.error
-        assert session.api_id == "api-utils"
+        assert session.api_ids == {
+            "dev": "utils-dev",
+            "qa": "utils-qa",
+            "uat": "utils-uat",
+            "prod": "utils",
+        }
         assert session.phase == Phase.ASK_INGRESS_HOST
 
+    def test_valor_unico_vale_para_todos_e_eco_deixa_explicito(
+        self, session: SessionState
+    ) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "api-utils")
+        assert not step.error
+        assert session.api_ids == dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils")
+        # o eco confirma ao usuario que o mesmo valor cobre os quatro ambientes
+        assert "o mesmo para" in step.message_to_user
+        assert "api-utils" in step.message_to_user
+
+    def test_espacos_em_volta_das_virgulas_sao_ignorados(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, " utils-dev , utils-qa , utils-uat , utils ")
+        assert not step.error
+        assert session.api_ids is not None
+        assert session.api_ids["dev"] == "utils-dev"
+        assert session.api_ids["prod"] == "utils"
+
     def test_vazio_e_obrigatorio_permanece(self, session: SessionState) -> None:
-        # apiId nao tem default: entrada vazia re-pergunta
-        session.phase = Phase.ASK_API_ID
-        step = sm.handle_api_id(session, "   ")
+        # apiIds nao tem default: entrada vazia re-pergunta
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "   ")
         assert step.error
-        assert step.next_phase == Phase.ASK_API_ID
-        assert session.api_id is None
+        assert step.next_phase == Phase.ASK_API_IDS
+        assert session.api_ids is None
+
+    @pytest.mark.parametrize("entrada", ["a,b", "a,b,c", "a,b,c,d,e"])
+    def test_quantidade_diferente_de_1_ou_4_repergunta(
+        self, entrada: str, session: SessionState
+    ) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, entrada)
+        assert step.error
+        assert step.next_phase == Phase.ASK_API_IDS
+        assert session.api_ids is None
+
+    def test_posicao_vazia_entre_virgulas_repergunta(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "utils-dev,,utils-uat,utils")
+        assert step.error
+        assert "qa" in (step.error or "")
+        assert session.api_ids is None
+
+    def test_valor_invalido_aponta_o_ambiente(self, session: SessionState) -> None:
+        session.phase = Phase.ASK_API_IDS
+        step = sm.handle_api_ids(session, "utils-dev,utils-qa,utils uat,utils")
+        assert step.error
+        assert "uat" in (step.error or "")
+        assert session.api_ids is None
 
 
 class TestHandleIngressHost:

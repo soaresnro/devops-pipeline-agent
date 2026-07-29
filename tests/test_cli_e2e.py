@@ -51,7 +51,7 @@ def test_cli_conduz_fluxo_completo_ate_confirm(tmp_path: Path) -> None:
             "",  # entrypoint .NET: enter usa o default app_name.dll
             "",  # applicationName: enter usa o nome do repo
             "",  # pathApiManagementService: enter deriva do applicationName
-            "api-payments",  # apiId: obrigatorio (sem default)
+            "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: enter deriva de services<path>
             "nao",
             "",
@@ -98,7 +98,7 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
             "",  # entrypoint .NET: default
             "",  # applicationName: default
             "",  # pathApiManagementService: default
-            "api-payments",  # apiId: obrigatorio (sem default)
+            "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: default
             "nao",
             "",
@@ -112,6 +112,41 @@ def test_cli_chat_roda_fluxo_deterministico_sem_llm(tmp_path: Path) -> None:
     assert "Qual o link do repositorio" in result.stdout
     assert "Vou criar os seguintes arquivos" in result.stdout
     assert "sessao cancelada" in result.stdout.lower()
+
+
+def test_cli_apiids_por_virgula_e_reperguntados_se_quantidade_errada(tmp_path: Path) -> None:
+    """Forma por virgula (4 valores) + repergunta quando a quantidade nao e 1 nem 4."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AZDO_ORG=contoso\n"
+        "DEVOPS_TEMPLATES_REPO_URL=https://dev.azure.com/contoso/Platform/_git/devops-templates\n",
+        encoding="utf-8",
+    )
+
+    inputs = "\n".join(
+        [
+            "https://dev.azure.com/contoso/Platform/_git/payments-api",
+            "main",
+            "payments-prod",
+            "api",
+            "dotnet",
+            "",  # versao .NET
+            "",  # entrypoint .NET
+            "",  # applicationName
+            "",  # pathApiManagementService
+            "api-dev,api-qa",  # so 2 valores -> repergunta
+            "api-dev,api-qa,api-uat,api-payments",  # os quatro, na ordem
+            "",  # host do ingress
+            "nao",
+            "",
+        ]
+    )
+
+    result = _run_cli(tmp_path, inputs)
+    assert result.returncode == 2, f"stdout={result.stdout}\nstderr={result.stderr}"
+    stdout = result.stdout
+    assert "na ordem dev, qa, uat, prod" in stdout  # mensagem de erro da quantidade
+    assert "apiIds: dev=api-dev, qa=api-qa, uat=api-uat, prod=api-payments" in stdout
 
 
 def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
@@ -135,7 +170,7 @@ def test_cli_rejeita_url_de_outra_org(tmp_path: Path) -> None:
             "",  # entrypoint .NET: enter usa o default
             "",  # applicationName: default
             "",  # pathApiManagementService: default
-            "api-payments",  # apiId: obrigatorio (sem default)
+            "api-payments",  # apiIds: valor unico vale para dev/qa/uat/prod (obrigatorio)
             "",  # host do ingress: default
             "nao",
             "",

@@ -263,7 +263,7 @@ class TestEnvironments:
             devops_templates_repo_name="Platform/devops-templates",
             devops_templates_tag="v3",
             application_name="autorizador-api-teste",
-            api_id="api-teste",
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-teste"),
         )
         ev = next(
             f for f in bundle.files if f.path == "helm/environments/qa/values.yaml"
@@ -460,7 +460,7 @@ class TestDatadogUnifiedServiceTagging:
             devops_templates_repo_name="Platform/devops-templates",
             devops_templates_tag="v3",
             application_name="autorizador-business-rules-api",
-            api_id="br-api",
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "br-api"),
         )
         ev = next(f for f in bundle.files if f.path == "helm/environments/uat/values.yaml")
         mc = yaml.safe_load(ev.content)["microservice-chart"]
@@ -514,7 +514,7 @@ class TestRenderedContent:
             dotnet_version="9.0.x",
             application_name="api-utils",
             apim_path="utils",
-            api_id="api-utils",
+            api_ids={"dev": "utils-dev", "qa": "utils-qa", "uat": "utils-uat", "prod": "utils"},
             **base_ctx,  # type: ignore[arg-type]
         )
         pipeline = next(f for f in bundle.files if f.path == "azure-pipelines.yaml")
@@ -531,16 +531,24 @@ class TestRenderedContent:
         assert "pathAutomation" not in params
         assert params["deploymentStrategy"] == "rolling"
         assert params["pathApiManagementService"] == "utils"
-        # apiId (template-aks): obrigatorio, emitido para api
-        assert params["apiId"] == "api-utils"
+        # apiIds (template-aks): obrigatorios, um por ambiente, emitidos para api
+        assert params["apiIdDev"] == "utils-dev"
+        assert params["apiIdQa"] == "utils-qa"
+        assert params["apiIdUat"] == "utils-uat"
+        assert params["apiIdProd"] == "utils"
+        assert "apiId" not in params
         # imageName = macro do repo (modelo real do time)
         assert params["imageName"] == "$(Build.Repository.Name)"
         assert params["imageTag"] == "$(Build.SourceBranchName)-$(Build.BuildId)"
         assert "appType" not in params
 
-    def test_pipeline_apiid_so_para_api(self, base_ctx: dict[str, object]) -> None:
-        # apiId (APIM) so e emitido para api; worker/cronjob dotnet nao passam apiId
-        api = build_bundle(app_type=AppType.API, api_id="api-utils", **base_ctx)  # type: ignore[arg-type]
+    def test_pipeline_apiids_so_para_api(self, base_ctx: dict[str, object]) -> None:
+        # os apiIds do APIM so sao emitidos para api; worker/cronjob dotnet nao passam nenhum
+        api = build_bundle(
+            app_type=AppType.API,
+            api_ids=dict.fromkeys(("dev", "qa", "uat", "prod"), "api-utils"),
+            **base_ctx,  # type: ignore[arg-type]
+        )
         worker = build_bundle(app_type=AppType.WORKER, **base_ctx)  # type: ignore[arg-type]
         api_params = yaml.safe_load(
             next(f for f in api.files if f.path == "azure-pipelines.yaml").content
@@ -548,8 +556,12 @@ class TestRenderedContent:
         worker_params = yaml.safe_load(
             next(f for f in worker.files if f.path == "azure-pipelines.yaml").content
         )["extends"]["parameters"]
-        assert api_params["apiId"] == "api-utils"
-        assert "apiId" not in worker_params
+        # valor unico informado no fluxo se repete nos quatro parametros
+        assert api_params["apiIdDev"] == "api-utils"
+        assert api_params["apiIdQa"] == "api-utils"
+        assert api_params["apiIdUat"] == "api-utils"
+        assert api_params["apiIdProd"] == "api-utils"
+        assert not [k for k in worker_params if k.startswith("apiId")]
 
     def test_pipeline_dotnet_defaults_derivados(self, base_ctx: dict[str, object]) -> None:
         # sem application_name/apim_path informados: applicationName = app_name e

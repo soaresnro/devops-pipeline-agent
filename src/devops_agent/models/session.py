@@ -25,7 +25,7 @@ class Phase(StrEnum):
     ASK_DOTNET_ENTRYPOINT = "ask_dotnet_entrypoint"
     ASK_APPLICATION_NAME = "ask_application_name"
     ASK_APIM_PATH = "ask_apim_path"
-    ASK_API_ID = "ask_api_id"
+    ASK_API_IDS = "ask_api_ids"
     ASK_INGRESS_HOST = "ask_ingress_host"
     VALIDATE = "validate"
     CONFIRM = "confirm"
@@ -66,7 +66,9 @@ class SessionState(BaseModel):
     dotnet_entrypoint: str | None = None  # assembly de entrada; None usa app_name.dll
     application_name: str | None = None  # applicationName da pipeline; None usa app_name
     apim_path: str | None = None  # pathApiManagementService; None deriva de application_name
-    api_id: str | None = None  # apiId do APIM (template-aks); obrigatorio para api, sem default
+    # apiIds do APIM por ambiente (template-aks: apiIdDev/Qa/Uat/Prod); obrigatorio para
+    # api, sem default. Chaves em validation.APIM_ENVIRONMENTS.
+    api_ids: dict[str, str] | None = None
     ingress_host: str | None = None  # host base do ingress; None deriva de apim_path
 
     confirmed: bool = False
